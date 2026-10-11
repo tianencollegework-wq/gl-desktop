@@ -1,0 +1,92 @@
+name: gracelinkim
+description: "Gracelink · Flutter 客户端（重写自 uniapp 版）"
+publish_to: 'none'
+
+version: 1.0.0+261008
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+
+  # 状态管理与依赖注入
+  flutter_riverpod: ^3.4.3
+  # 路由
+  go_router: ^17.5.0
+  # HTTP / WebSocket
+  dio: ^5.11.1
+  web_socket_channel: ^3.0.3
+  # 本地键值缓存（替代老端 uni.setStorageSync）
+  shared_preferences: ^2.5.5
+  # hostToken 自校验（对应老端 crypto-js 的两次 md5）
+  crypto: ^3.0.7
+  flutter_svg: ^2.3.0
+  path_provider: ^2.1.6
+  drift: ^2.35.0
+  drift_flutter: ^0.3.1
+  just_audio: ^0.10.6
+  image_picker: ^1.2.3
+  # 发图前在本地压小（S4.4c）。用它而不是纯 Dart 的 package:image，
+  # 是因为它走系统原生编码：快得多，而且能把 iPhone 的 HEIC 和 EXIF 方向一起处理掉。
+  flutter_image_compress: ^2.5.0
+  file_picker: ^13.1.0
+  record: ^7.1.1
+  video_player: ^2.14.0
+  gal: ^2.3.3
+  open_filex: ^4.7.0
+  url_launcher: ^6.3.2
+  # 读本机版本号 / 版本名走的是自定义平台通道（android/.../MainActivity.kt），
+  # 没用 package_info_plus：它要 win32 ^5.5.3，与 file_picker 那条依赖链冲突。
+  # 通话媒体层（S6.2）：老端跑在 WebView 里的 RTCPeerConnection 换成原生插件
+  flutter_webrtc: ^1.5.2
+  qr_flutter: ^4.1.0
+  webview_flutter: ^4.14.1
+  # Windows 上的真 webview（WebView2，桌面外链开成独立网页窗用）。**本仓副本**
+  # （third_party/webview_flutter_windows）：上游 1.3.0 的 ~WebviewBridge 在引擎
+  # 销毁时会对已经摘空的 messenger 反注册通道 → 关一扇网页窗就 c0000005 崩掉整个
+  # 进程（flutter_windows.dll+0x14f37，与 S12.24 的 just_audio 同一个坑，见规划书
+  # S12.25）。副本里那一句注释有完整调用链，上游修掉之后换回 pub 版。
+  mobile_scanner: ^7.4.2
+  flutter_local_notifications: ^22.3.1
+  firebase_core: ^4.15.0
+  firebase_messaging: ^16.7.0
+  audio_service: ^0.18.19
+  image: ^4.10.1
+  # Windows 上的 just_audio 实现。**本仓副本**（third_party/just_audio_windows_plus）：
+  # 上游 0.5.3 的插件析构里会在引擎已经拆完（messenger 先被摘空）之后反注册
+  # 通道 → 任何一次引擎销毁（关主窗口 / 关独立窗口）都 c0000005 崩掉整个进程
+  # （S12.24 查到的，副本里那一句注释有完整调用链）。
+  just_audio_windows_plus:
+    path: third_party/just_audio_windows_plus
+  desktop_multi_window: ^0.3.1
+  webview_flutter_windows:
+    path: third_party/webview_flutter_windows
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  # 真机自检（integration_test/）：跑在设备上验 WebRTC 媒体层。
+  # 不参与 `flutter test`（那只会跑 test/ 目录），要用
+  # `flutter test integration_test/xxx.dart -d <设备号>` 手动跑。
+  integration_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  drift_dev: ^2.35.0
+  build_runner: ^2.15.1
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/i18n/
+    - assets/images/
+    - assets/icons/navbar/
+    # 通话铃声（S6.2）：老端把它放在 hybrid/html/voice/calling.mp3（客户端自带），
+    # 所以新端也做成随包资源，断网/弱网也能响。
+    - assets/audio/
+

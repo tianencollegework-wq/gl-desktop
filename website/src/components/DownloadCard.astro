@@ -1,0 +1,63 @@
+---
+/**
+ * 下载页的一张平台卡片：图标 + 平台名 + 状态 + 按钮。**仅此而已**。
+ *
+ * 曾经在这里显示版本号 / 内部号 / 校验和 / 「未签名会提示未知发布者」——
+ * 那是发版日志该说的话，不是官网（用户 2026-10-10 明确要求去掉）。
+ * 版本信息的真源仍是服务端的 `update.json`，但只用来决定**链接与是否可下**。
+ *
+ * `data-download` 是给微信守卫用的（`DownloadGuard.astro`）：在微信内置浏览器里
+ * 点了不直接跳，先弹说明 —— 微信会把「外链直接下安装包」判成诱导下载，
+ * 严重时封的是整个域名。
+ */
+import PlatformIcon from './PlatformIcon.astro';
+import { ui } from '../i18n/ui';
+import type { PlatformDownload } from '../data/downloads';
+import type { Lang } from '../consts';
+
+interface Props {
+  lang: Lang;
+  entry: PlatformDownload;
+  label: string;
+}
+const { lang, entry, label } = Astro.props;
+const t = ui[lang].download;
+---
+
+<article
+  class="flex flex-col rounded-2xl border border-line bg-white p-6 shadow-[0_10px_30px_-24px_rgba(26,26,26,0.45)] transition-colors hover:border-brand/30"
+>
+  <div class="flex items-center gap-3.5">
+    <span class="grid h-12 w-12 place-items-center rounded-xl bg-brand/10 text-brand-deep">
+      <PlatformIcon name={entry.key} size={26} />
+    </span>
+    <div>
+      <h3 class="text-lg font-bold text-ink">{label}</h3>
+      <p class={`text-xs ${entry.available ? 'text-brand-deep' : 'text-muted'}`}>
+        {entry.available ? t.downloadButton : t.soonButton}
+      </p>
+    </div>
+  </div>
+
+  <div class="mt-7">
+    {
+      entry.available && entry.url ? (
+        <a
+          href={entry.url}
+          rel="noopener"
+          data-download
+          class="inline-flex w-full items-center justify-center rounded-full bg-brand px-5 py-3 text-[0.95rem] font-semibold text-white transition-colors hover:bg-brand-dark"
+        >
+          {t.downloadButton}
+        </a>
+      ) : (
+        <span
+          class="inline-flex w-full items-center justify-center rounded-full border border-line bg-cream-deep/60 px-5 py-3 text-[0.95rem] font-semibold text-muted"
+          aria-disabled="true"
+        >
+          {t.soonButton}
+        </span>
+      )
+    }
+  </div>
+</article>

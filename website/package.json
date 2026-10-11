@@ -1,0 +1,30 @@
+{
+  "name": "gracelink-website",
+  "type": "module",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "check": "astro check",
+    "verify": "node scripts/verify-build.mjs",
+    "logo": "node scripts/make-logo.mjs",
+    "dev:edge": "wrangler dev"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "astro": "^7.3.8",
+    "tailwindcss": "^4.3.3"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.10",
+    "@types/node": "^26.6.5",
+    "@types/qrcode": "^1.5.6",
+    "qrcode": "^1.5.4",
+    "sharp": "^0.35.5",
+    "simple-icons": "^16.34.0",
+    "typescript": "^6.0.3",
+    "wrangler": "^4.149.0"
+  }
+}

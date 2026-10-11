@@ -1,0 +1,9 @@
+{"at":"2026-09-18T17:05:44.302091","direction":"out","payload":"{\"type\":\"ping\"}"}
+{"at":"2026-09-18T17:05:44.305091","direction":"in","payload":"{\"type\":\"init\",\"client_id\":\"7f00000108fc00000009\"}"}
+{"at":"2026-09-18T17:05:44.540197","direction":"in","payload":"{\"type\":\"pong\",\"multiport\":false}"}
+{"at":"2026-09-18T17:05:49.307157","direction":"out","payload":"{\"type\":\"ping\"}"}
+{"at":"2026-09-18T17:05:49.550501","direction":"in","payload":"{\"type\":\"pong\",\"multiport\":false}"}
+{"at":"2026-09-18T17:05:54.316353","direction":"out","payload":"{\"type\":\"ping\"}"}
+{"at":"2026-09-18T17:05:54.632455","direction":"in","payload":"{\"type\":\"pong\",\"multiport\":false}"}
+{"at":"2026-09-18T17:05:59.305258","direction":"out","payload":"{\"type\":\"ping\"}"}
+{"at":"2026-09-18T17:05:59.651612","direction":"in","payload":"{\"type\":\"pong\",\"multiport\":false}"}

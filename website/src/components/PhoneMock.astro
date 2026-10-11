@@ -1,0 +1,64 @@
+---
+/**
+ * 手机样机 = **真机截图** + 一圈机身外框。
+ *
+ * 2026-10-10 之前，这里的界面是我用 CSS 手画的 —— 名字、图标、按钮、行数
+ * 全跟 App 对不上（用户一眼就看出来了："你不会画就不要画"）。现在屏幕上贴的是
+ * **App 自己渲染出来的图**：
+ *
+ * * 出图工具：`test/tools/render/render_shots_test.dart`
+ *   （跑法：`RENDER_SHOTS=1 flutter test test/tools/render/render_shots_test.dart`）
+ * * 产物：`public/shots/<名字>.png`（中文）、`public/shots/en/<名字>.png`（英文）
+ *
+ * 换图 = 改那个 Dart 工具再重跑一次；这个组件里不再有任何「画出来」的界面。
+ */
+import type { Lang } from '../consts';
+import { SHOT_FILES, type Shot } from '../data/shots';
+
+interface Props {
+  shot: Shot;
+  lang: Lang;
+  /** 屏幕在页面上的显示宽度（px）。图本身是 2 倍图（720×1520），所以够锐 */
+  width?: number;
+  /** 首屏那张不要懒加载 */
+  eager?: boolean;
+  class?: string;
+}
+const { shot, lang, width = 254, eager = false, class: className = '' } = Astro.props;
+
+const alt: Record<Lang, Record<Shot, string>> = {
+  zh: {
+    list: '恩信的会话列表：置顶的群、带未读角标的会话、免打扰的小灰点',
+    chat: '恩信的聊天页：群聊里的文字与图片消息，自己的气泡是绿色的',
+    contacts: '恩信的通讯录：新的朋友、群聊、系统通知，以及按首字母分组的好友',
+    discover: '恩信的发现页：灵听与媒体号两栏',
+    'group-call': '恩信的群通话：成员、麦克风、共享屏幕与挂断四颗钮',
+  },
+  en: {
+    list: 'Gracelink conversation list: pinned group, unread badges, muted rows',
+    chat: 'Gracelink chat: text and image messages in a group',
+    contacts: 'Gracelink contacts: new friends, group chats, notifications, A–Z friends',
+    discover: 'Gracelink Discover: the Lingting and Media entries',
+    'group-call': 'Gracelink group call: members, microphone, screen share and hang up',
+  },
+};
+
+const src = `/shots/${lang === 'en' ? 'en/' : ''}${SHOT_FILES[shot]}`;
+---
+
+<div class={`relative shrink-0 ${className}`} style={`width:${width + 16}px`}>
+  <!-- 机身只剩外框（圆角 + 细边 + 投影），屏幕里是真图 -->
+  <div
+    class="rounded-[2.2rem] border border-line bg-white p-2 shadow-[0_18px_40px_-18px_rgba(26,26,26,0.38)]"
+  >
+    <img
+      src={src}
+      alt={alt[lang][shot]}
+      width="720"
+      height="1520"
+      loading={eager ? 'eager' : 'lazy'}
+      decoding="async"
+      class="block w-full rounded-[1.7rem]"
+    />
+  </div>
+</div>

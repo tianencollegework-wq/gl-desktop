@@ -1,0 +1,97 @@
+---
+/**
+ * 页脚。四栏 + 底栏（版权 / 备案占位）。
+ *
+ * 这里**不做死链、也不做假的「即将上线」**：
+ *
+ * * 服务条款 / 隐私政策 / 常见问题在 2026-10-10 落地成了真页面（`/zh/terms/`、
+ *   `/zh/privacy/`、`/zh/faq/` 与对应的英文），页脚直接链过去；
+ * * 「更新日志」**整项撤掉**（用户 2026-10-10：更新日志不是即将上线，压根没准备做）
+ *   —— 不做的东西不留一个灰色条目在那儿；
+ * * 联系方式给真实可达的一个口：`support@gracelink.cc`（与法律两页里写的是同一个
+ *   地址，见 `src/content/legal.ts`），另有客户端内的帮助中心；
+ * * 底栏的「备案信息待补充」已去掉（用户 2026-10-11 要求）：站点托在 Cloudflare 上，
+ *   不经大陆机房，不涉及 ICP。
+ */
+import BrandMark from './BrandMark.astro';
+import { ui } from '../i18n/ui';
+import { pagePath } from '../i18n/utils';
+import { SUPPORT_EMAIL } from '../content/legal';
+import { PRODUCT_NAME, type Lang } from '../consts';
+
+interface Props {
+  lang: Lang;
+}
+const { lang } = Astro.props;
+const t = ui[lang];
+const home = pagePath(lang, '');
+const download = pagePath(lang, 'download');
+const faq = pagePath(lang, 'faq');
+const terms = pagePath(lang, 'terms');
+const privacy = pagePath(lang, 'privacy');
+const year = new Date().getFullYear();
+
+/** 页脚那几栏共用的链接样式 */
+const linkClass = 'text-muted transition-colors hover:text-brand-deep';
+---
+
+<footer id="support" class="border-t border-line bg-cream-deep/60">
+  <div class="mx-auto grid max-w-6xl gap-10 px-5 py-14 md:grid-cols-[1.4fr_1fr_1fr_1fr]">
+    <div>
+      <BrandMark lang={lang} size={30} />
+      <p class="mt-4 max-w-xs text-sm leading-6 text-muted">
+        {t.footer.tagline}
+      </p>
+    </div>
+
+    <div>
+      <h2 class="text-sm font-bold text-ink">{t.footer.productTitle}</h2>
+      <ul class="mt-4 space-y-2.5 text-sm">
+        <li>
+          <a href={`${home}#features`} class={linkClass}>{t.footer.featureList}</a>
+        </li>
+        <li>
+          <a href={download} class={linkClass}>{t.footer.download}</a>
+        </li>
+      </ul>
+    </div>
+
+    <div>
+      <h2 class="text-sm font-bold text-ink">{t.footer.supportTitle}</h2>
+      <ul class="mt-4 space-y-2.5 text-sm">
+        <li>
+          <a href={faq} class={linkClass}>{t.footer.faq}</a>
+        </li>
+        <li>
+          <a href={`mailto:${SUPPORT_EMAIL}`} class={linkClass}>{SUPPORT_EMAIL}</a>
+        </li>
+        <li class="text-muted/80">{t.footer.contact}</li>
+      </ul>
+    </div>
+
+    <div>
+      <h2 class="text-sm font-bold text-ink">{t.footer.legalTitle}</h2>
+      <ul class="mt-4 space-y-2.5 text-sm">
+        <li>
+          <a href={terms} class={linkClass}>{t.footer.terms}</a>
+        </li>
+        <li>
+          <a href={privacy} class={linkClass}>{t.footer.privacy}</a>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!--
+    底栏只留版权。备案号那一行已整体去掉（用户 2026-10-11 要求）—— 官网托在
+    Cloudflare 上、不经大陆机房，本来就不涉及 ICP；正式站点上留一句「待补充」
+    的占位比没有更难看。真要做大陆节点时再把那一行加回来。
+    （注意：这个注释会原样出现在线上 HTML 里，所以里面不写那串占位文案本身 ——
+    构建自检会把「页面里出现占位文案」判成失败。）
+  -->
+  <div class="border-t border-line">
+    <div class="mx-auto max-w-6xl px-5 py-6 text-xs text-muted">
+      <p>Copyright © {year} {PRODUCT_NAME}. {t.footer.rights}</p>
+    </div>
+  </div>
+</footer>

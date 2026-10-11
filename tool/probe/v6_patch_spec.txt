@@ -1,0 +1,41 @@
+@@A1
+        foreach ($this->okTracks($result) as $track) {
+            $name = (string)($track['trackName'] ?? '');
+            $mid  = (string)($track['mid'] ?? '');
+            if ($name === '') {
+                continue;
+            }
+@@R1
+        foreach ($this->okTracks($result) as $track) {
+            // ⚠️ **这里必须读 `track_name`（下划线）**：这个循环遍历的是 [okTracks] 的返回值，
+            // 而它的键来自 [tracksOut] —— 那套键（`track_name` / `mid` / `error_code`…）
+            // 是**给客户端用的**字段名，全是下划线。
+            // 以前这里写成了 CF 那边的驼峰 `trackName`，于是**永远读到空字符串**、
+            // 把每一条都 `continue` 掉：
+            //   发布回包照旧正常（客户端看到"上游接受了 mic"），
+            //   但注册表里写进去的 tracks 永远是空 → 谁都不会来订阅我
+            //   → 互相听不到、共享屏也看不到。
+            // 真机上"能连上、能看见人、谁都听不到谁"就是这个字符之差。
+            $name = (string)($track['track_name'] ?? '');
+            $mid  = (string)($track['mid'] ?? '');
+            if ($name === '') {
+                continue;
+            }
+@@A2
+        foreach ($this->okTracks($result) as $track) {
+            $mid  = (string)($track['mid'] ?? '');
+            $name = (string)($track['trackName'] ?? '');
+            if ($mid !== '' && $name !== '') {
+                $midMap[$mid] = $name;
+            }
+        }
+@@R2
+        foreach ($this->okTracks($result) as $track) {
+            // 同 [publish]：okTracks 的返回值是下划线那套键，不能读驼峰的 `trackName`
+            // （读错了就永远记不下接收侧的 mid，停订阅时就关不掉那几条 track）
+            $mid  = (string)($track['mid'] ?? '');
+            $name = (string)($track['track_name'] ?? '');
+            if ($mid !== '' && $name !== '') {
+                $midMap[$mid] = $name;
+            }
+        }

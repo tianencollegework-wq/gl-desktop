@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      桌面上的应用名。以前清单里写死的是 `gracelinkim`（Flutter 建工程时的包名），
+      真机桌面/最近任务/设置里显示的都是这一串 —— 2026-09-25 整体排查时发现的。
+      中文用 App 自己的名字（i18n `user.appName` = 恩信），英文包在 values-en 里。
+    -->
+    <string name="app_name">恩信</string>
+    <!--
+      通话**前台服务**的常驻通知渠道（渠道名会出现在系统「通知」设置里）。
+
+      ⚠️ 它与「来电通知」的渠道是**两条**，别合并：过去两边共用
+      `gracelinkim_call`，而这个服务先把它创成了低优先级静音渠道，
+      于是来电通知（Dart 侧，要求最高优先级 + 声音 + 全屏）被系统一直当成静音的，
+      表现就是「有通话时来消息只有一行文案，没声音、不全屏」。
+    -->
+    <string name="call_service_channel_name">通话中（后台运行）</string>
+    <string name="call_service_channel_description">通话期间的常驻通知，用于保持通话不被系统中断；挂断后自动消失。</string>
+</resources>

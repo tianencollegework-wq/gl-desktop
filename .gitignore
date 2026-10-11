@@ -1,0 +1,63 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# 正式签名（S12.6）：口令在 key.properties、证书是 *.keystore/*.jks
+# —— 本机才有，绝不进版本控制
+android/key.properties
+*.jks
+*.keystore
+
+# ── 公开仓库的纪律（2026-10-11 定了走 GitHub 的**公开**仓库，见 docs/release/macos-plan.md 第八节）──
+# 会签名的、会暴露服务器口令的、以及又大又没用的产物，一律不进仓库：
+/dist/
+crash_stack.txt
+# Firebase 配置 + 安卓 API key：将来安卓要上 CI 就用 secret 注入，别提交
+android/app/google-services.json
+# 官网（website/）自己那套
+website/node_modules/
+website/dist/
+website/.astro/
+website/.wrangler/

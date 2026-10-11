@@ -1,0 +1,34 @@
+{
+  // 本地用 `npx wrangler dev` 起 workerd 跑一遍（真环境、真头、真 Assets 行为），
+  // 再决定要不要部署。部署那一步走 Sites（见 README）。
+  "name": "gracelink-website",
+  "main": "worker/index.js",
+  // 保留 workers.dev 那条地址：一是自定义域名出问题时有条能验证的地址，
+  // 二是排查「是 Worker 的问题还是域名/DNS 的问题」时能分开看。
+  // （**不写它**的话，一旦 wrangler.jsonc 里出现 routes，wrangler 会默认把
+  // workers.dev 关掉 —— 第一次带 routes 部署时就撞上了：域名没绑成、
+  // workers.dev 也一起没了，等于站上没有任何地址。）
+  "workers_dev": true,
+  "compatibility_date": "2026-10-10",
+  // 自定义域名：官网绑在**用户自己的** Cloudflare 账号（29dliu 那个）上的根域与 www，
+  // www 由 Worker 301 到根域（见 worker/index.js 的 APEX_HOST / WWW_HOST）。
+  // 第一次部署时先不带这一段跑过一次（确认 Worker 本身没问题），再加域名重新部署：
+  // 域名绑定的失败模式（域名分区不在本账号、记录冲突）不应该把「站点能不能跑」也拖下水。
+  "routes": [
+    { "pattern": "gracelink.cc", "custom_domain": true },
+    { "pattern": "www.gracelink.cc", "custom_domain": true }
+  ],
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    // 关键：默认是「静态资源优先」—— `dist/index.html` 存在时，根路径的请求
+    // 根本不会进 Worker，我们的语言协商就永远不跑（本地首次验证就撞上了：
+    // `curl -H 'Accept-Language: zh-CN' /` 返回了那份静态页，不是 302）。
+    // 打开这个开关后 Worker 先跑，再把非根路径原样交回 ASSETS。
+    "run_worker_first": true,
+    // /zh/download → /zh/download/（与我们 canonical/hreflang 里写的形状一致）
+    "html_handling": "auto-trailing-slash",
+    // 找不到的路径给 404.html（而不是把首页顶上去）
+    "not_found_handling": "404-page"
+  }
+}

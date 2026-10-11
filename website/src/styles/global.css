@@ -1,0 +1,75 @@
+@import 'tailwindcss';
+
+/**
+ * 设计令牌。方向 A「暖色营销站」（见 docs/website/plan.md §4）：
+ * 奶油底 + 超大字重标题 + 品牌绿胶囊 CTA。
+ *
+ * 品牌色取自 App 本身（`lib/core/theme/app_colors.dart`），官网与客户端不打架：
+ * **品牌绿 #39B54A**（App 的主按钮色）、**链接深绿 #12744D**（App 白底绿链接那档）。
+ */
+@theme {
+  /* 底与字 */
+  --color-cream: #fbf7f0;
+  --color-cream-deep: #f4ecdf;
+  --color-ink: #1a1a1a;
+  --color-ink-soft: #3d3d3d;
+  --color-muted: #6b6b6b;
+  --color-line: #e7dfd3;
+
+  /* 品牌 */
+  --color-brand: #39b54a;
+  --color-brand-dark: #2e9a3e;
+  --color-brand-deep: #12744d;
+  --color-brand-wash: #effaf2;
+
+  /*
+   * 手机样机用的颜色：**全部取自 App 自己的 `AppColors`**（逐色对齐，不是“差不多”），
+   * 这样样机看起来才是同一个软件。
+   */
+  --color-app-bar: #ededed;          /* 顶部栏 / 聊天背景（navBar） */
+  --color-app-bar-divider: #dcdcdc;  /* 顶部栏下那条线（navDivider） */
+  --color-app-bubble-mine: #95ec69;  /* 自己发的气泡（bubbleMine，字是黑的） */
+  --color-app-bubble-other: #ffffff; /* 对方的气泡（bubbleOther） */
+  --color-app-red: #fa5151;          /* 未读角标（unreadRed） */
+  --color-app-tabbar: #f7f7f7;       /* 底部 tab 栏（tabBar，比顶部栏浅一档） */
+  --color-app-tab-inactive: #575b66; /* 底部 tab 未选中（tabInactive） */
+  --color-app-green: #07c160;        /* 微信绿：底部 tab 选中态（wechatGreen） */
+  --color-app-row-divider: #e5e5e5;  /* 列表行分割线（rowDivider） */
+  --color-app-time: #b2b2b2;         /* 时间 / chevron（textTime） */
+  --color-app-text: #1a1a1a;         /* 近黑正文（text000） */
+  --color-app-text-weak: #999999;    /* 二级灰（text999） */
+  --color-app-entry-orange: #fa9e3b; /* 通讯录入口：新的朋友（entryOrange） */
+  --color-app-entry-blue: #2781d7;   /* 通讯录入口：标签 / 公众号（entryBlue） */
+  --color-app-icon-green: #10b060;   /* 我的页图标：服务（iconGreen） */
+  --color-app-icon-amber: #f0b010;   /* 我的页图标：表情（iconAmber） */
+  --color-app-icon-blue: #2080d0;    /* 我的页图标：设置（iconBlue） */
+
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+html {
+  /* 锚点跳转留出顶栏的高度 */
+  scroll-padding-top: 5rem;
+}
+
+body {
+  background-color: var(--color-cream);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* 中文大标题：字重与字距往「品牌感」那一档调，别用浏览器默认 */
+h1,
+h2,
+h3 {
+  letter-spacing: -0.01em;
+}
+
+/* 图片一律不做「点击拖拽」，避免桌面端拖动 hero 图 */
+img,
+svg {
+  -webkit-user-drag: none;
+}

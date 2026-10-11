@@ -1,0 +1,106 @@
+---
+/**
+ * 根路径 `/` —— **只做语言协商，不放内容**。
+ *
+ * 两层协商，谁在谁负责：
+ *
+ * 1. **边缘函数**（`worker/index.js`）：读 cookie → `Accept-Language` → 302 到
+ *    `/zh/` 或 `/en/`，并给响应打 `Cache-Control: no-store`（同一个 URL 换语言，
+ *    绝不能被 CDN 缓存成一份 —— WhatsApp 就是这么干的，plan §2.3）。
+ * 2. **本页的脚本**：边缘函数不在时（`astro dev`、纯静态托管、或有人直接开
+ *    `dist/index.html`）用 `navigator.languages` 做同样的判断。
+ *
+ * 这一页本身是**一个能独立站住的最小 HTML**：JS 被禁用也能看见两个手点链接，
+ * 不会白屏（plan §2.3 最后一条）。默认（无 JS、认不出语言）看得到的是英文入口。
+ */
+import '../styles/global.css';
+import BrandMark from '../components/BrandMark.astro';
+import { ui } from '../i18n/ui';
+
+const t = ui.en.root;
+const tZh = ui.zh.root;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Gracelink</title>
+    <meta name="robots" content="noindex" />
+    <!-- 语言协商的结果不能被共享缓存复用；边缘函数那边也会带同一个头 -->
+    <meta http-equiv="Cache-Control" content="no-store" />
+    <link rel="icon" href="/logo-192.png" type="image/png" sizes="192x192" />
+    <link rel="alternate" hreflang="zh-Hans" href="https://gracelink.cc/zh/" />
+    <link rel="alternate" hreflang="en" href="https://gracelink.cc/en/" />
+    <link rel="alternate" hreflang="x-default" href="https://gracelink.cc/en/" />
+  </head>
+  <body class="grid min-h-dvh place-items-center bg-cream">
+    <main class="text-center">
+      <div class="flex justify-center">
+        <BrandMark lang="en" size={44} withWordmark={false} />
+      </div>
+      <h1 class="mt-5 text-2xl font-extrabold text-ink">恩信 Gracelink</h1>
+      <p class="mt-2 text-sm text-muted">{t.redirecting}</p>
+
+      <div class="mt-8 flex items-center justify-center gap-3">
+        <a
+          href="/zh/"
+          data-lang-link="zh"
+          class="rounded-full bg-brand px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-brand-dark"
+          >中文</a
+        >
+        <a
+          href="/en/"
+          data-lang-link="en"
+          class="rounded-full border border-line bg-white px-6 py-3 text-sm font-semibold text-ink transition-colors hover:border-brand/40"
+          >English</a
+        >
+      </div>
+
+      <p class="mt-6 max-w-xs text-xs leading-6 text-muted">
+        {t.hint}
+      </p>
+      <p class="mt-1 max-w-xs text-xs leading-6 text-muted/80">{tZh.hint}</p>
+    </main>
+
+    <!--
+      这一段是 is:inline 的裸脚本，所以 cookie 名与有效期写成了字面量 ——
+      它们必须与 src/consts.ts 的 LANG_COOKIE / LANG_COOKIE_MAX_AGE 一致，
+      `npm run verify` 会把这条钉住（scripts/verify-build.mjs）。
+    -->
+    <script is:inline>
+      // 与边缘函数同一套判定顺序：cookie（用户选过）> 浏览器语言 > 英文兜底
+      (function () {
+        var cookieName = 'gl_lang';
+        var maxAge = 31536000;
+        function readCookie() {
+          var hit = document.cookie.match(new RegExp('(?:^|; )' + cookieName + '=([^;]*)'));
+          return hit ? decodeURIComponent(hit[1]) : '';
+        }
+        function pick() {
+          var saved = readCookie();
+          if (saved === 'zh' || saved === 'en') return saved;
+          var langs = navigator.languages && navigator.languages.length
+            ? navigator.languages
+            : [navigator.language || ''];
+          for (var i = 0; i < langs.length; i++) {
+            var tag = String(langs[i]).toLowerCase();
+            if (tag.indexOf('zh') === 0) return 'zh';
+            if (tag.indexOf('en') === 0) return 'en';
+          }
+          return 'en'; // 认不出来 → 英文
+        }
+        var lang = pick();
+        // 记下这次判断，下次访问根路径直接听它的（跟手动切换共用一个 cookie）
+        try {
+          document.cookie =
+            cookieName + '=' + lang + '; path=/; max-age=' + maxAge + '; samesite=lax';
+        } catch (e) {
+          /* cookie 被禁用也不影响下面这一次跳转 */
+        }
+        location.replace('/' + lang + '/');
+      })();
+    </script>
+  </body>
+</html>

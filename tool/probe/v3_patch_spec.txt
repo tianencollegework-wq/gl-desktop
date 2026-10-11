@@ -1,0 +1,229 @@
+@@A1
+        try {
+            Db::execute($sql);
+            Cache::set('sfu_table_ready', 1, 3600);
+        } catch (\Throwable $e) {
+            // 建不了（没权限 / 字符集不对）也不能让接口直接崩：记下来，读表的人会空手而归
+            trace('SFU：建注册表失败：' . $e->getMessage(), 'error');
+        }
+    }
+
+    /**
+     * 数据库表前缀（与 `Db::name` 用的是同一份配置）
+     */
+@@R1
+        try {
+            Db::execute($sql);
+        } catch (\Throwable $e) {
+            // 建不了（没权限 / 字符集不对）也不能让接口直接崩：记下来，读表的人会空手而归
+            trace('SFU：建注册表失败：' . $e->getMessage(), 'error');
+            return;
+        }
+        // ⚠️ 上面那句 `CREATE TABLE IF NOT EXISTS` 见到**已经有**这张表就什么都不做。
+        // 而这张表可能是**更早一版补丁建的**，列不一定齐 —— 一旦少了 `tracks` / `mids`，
+        // 症状就是"进得去、看得见人、谁都听不到谁"：
+        //   * 写：多出来的列被框架**静默丢掉**（不报错、不落日志），行永远停在老样子；
+        //   * 读：`$row['tracks']` 根本不存在 → 注册表里每个人都像"什么都没发布" →
+        //     没人去订阅任何人（别人听不到我、也看不到我的共享屏）。
+        // 真机上就是这样：发布成功、Cloudflare 也接受了，登记表却永远是空的。
+        // 所以这里**必须验列**，不能信"表已经建过"这个缓存标记。
+        if (!$this->ensureColumns($table)) {
+            return;
+        }
+        $this->ensureUniqueKey($table);
+        Cache::set('sfu_table_ready', 1, 3600);
+    }
+
+    /**
+     * 注册表**必须**有的列（不含主键 id）：列名 => ADD COLUMN 后面那一段。
+     * 与上面那句 CREATE TABLE 必须**逐字对应** —— 表结构只能有一份真相。
+     */
+    private function requiredColumns()
+    {
+        return [
+            'room_id'    => "`room_id` varchar(64) NOT NULL DEFAULT ''",
+            'user_id'    => "`user_id` varchar(64) NOT NULL DEFAULT ''",
+            'purpose'    => "`purpose` varchar(16) NOT NULL DEFAULT 'publish'",
+            'session_id' => "`session_id` varchar(128) NOT NULL DEFAULT ''",
+            'tracks'     => "`tracks` varchar(512) NOT NULL DEFAULT ''",
+            'mids'       => "`mids` varchar(512) NOT NULL DEFAULT ''",
+            'updated_at' => '`updated_at` int(10) unsigned NOT NULL DEFAULT 0',
+        ];
+    }
+
+    /**
+     * 这张表**真正**有哪些列；读不到时返回 null（不猜，也不瞎改）。
+     */
+    private function tableColumns($table)
+    {
+        try {
+            $rows = Db::query('SHOW COLUMNS FROM `' . $table . '`');
+        } catch (\Throwable $e) {
+            trace('SFU：读注册表结构失败：' . $e->getMessage(), 'error');
+            return null;
+        }
+        $names = [];
+        foreach ((array)$rows as $row) {
+            if (is_array($row) && isset($row['Field'])) {
+                $names[] = (string)$row['Field'];
+            }
+        }
+        return $names;
+    }
+
+    /**
+     * 缺哪列补哪列（老结构的表就这么自愈）。返回"结构现在能不能用"。
+     */
+    private function ensureColumns($table)
+    {
+        $have = $this->tableColumns($table);
+        if ($have === null) {
+            // 结构都读不到（没权限？）：按可用处理，别把整条通话链路卡死
+            return true;
+        }
+        if (!in_array('id', $have, true)) {
+            // 主键列缺了没法自动补（AUTO_INCREMENT 得有键），只能报给运维
+            trace('SFU：注册表缺主键列 id（这张表是老版本建的），请手工重建这张表', 'error');
+            return false;
+        }
+        $missing = [];
+        foreach ($this->requiredColumns() as $name => $ddl) {
+            if (!in_array($name, $have, true)) {
+                $missing[$name] = $ddl;
+            }
+        }
+        foreach ($missing as $name => $ddl) {
+            try {
+                Db::execute('ALTER TABLE `' . $table . '` ADD COLUMN ' . $ddl);
+                trace('SFU：注册表缺列 ' . $name . '（老结构），已自动补上', 'info');
+            } catch (\Throwable $e) {
+                trace(
+                    'SFU：注册表缺列 ' . $name . ' 且自动补失败，请在数据库手工执行：'
+                    . 'ALTER TABLE `' . $table . '` ADD COLUMN ' . $ddl
+                    . ' —— ' . $e->getMessage(),
+                    'error'
+                );
+            }
+        }
+        if (empty($missing)) {
+            return true;
+        }
+        $now = $this->tableColumns($table);
+        if (!is_array($now)) {
+            return true;
+        }
+        return in_array('tracks', $now, true) && in_array('mids', $now, true);
+    }
+
+    /**
+     * 唯一键 `(room_id, user_id, purpose)`：缺了会出现"同一个人同一个用途两行"，
+     * 于是**写进去的那一行和读出来的那一行可能不是同一行**（读到的永远是那条空行）。
+     * 补不上不算致命（只是可能读到旧行），所以只记日志、不拦请求。
+     */
+    private function ensureUniqueKey($table)
+    {
+        try {
+            $rows = Db::query('SHOW INDEX FROM `' . $table . '`');
+        } catch (\Throwable $e) {
+            return;
+        }
+        foreach ((array)$rows as $row) {
+            if (is_array($row) && (string)($row['Key_name'] ?? '') === 'uk_room_user_purpose') {
+                return;
+            }
+        }
+        try {
+            Db::execute(
+                'ALTER TABLE `' . $table . '` ADD UNIQUE KEY '
+                . '`uk_room_user_purpose` (`room_id`,`user_id`,`purpose`)'
+            );
+            trace('SFU：注册表缺唯一键，已自动补上', 'info');
+        } catch (\Throwable $e) {
+            trace(
+                'SFU：注册表缺唯一键且补失败（表里可能已有重复行，先删重复再执行）：'
+                . 'ALTER TABLE `' . $table . '` ADD UNIQUE KEY '
+                . '`uk_room_user_purpose` (`room_id`,`user_id`,`purpose`)'
+                . ' —— ' . $e->getMessage(),
+                'error'
+            );
+        }
+    }
+
+    /**
+     * 数据库表前缀（与 `Db::name` 用的是同一份配置）
+     */
+@@A2
+        try {
+            $exists = Db::name($this->tableName())->where($map)->find();
+            if ($exists) {
+                Db::name($this->tableName())->where('id', $exists['id'])->update($data);
+                return $started;
+            }
+            Db::name($this->tableName())->insert(array_merge($data, $map));
+        } catch (\Throwable $e) {
+@@R2
+        try {
+            $exists = Db::name($this->tableName())->where($map)->find();
+            if ($exists) {
+                Db::name($this->tableName())->where('id', $exists['id'])->update($data);
+                trace('SFU：注册表改写 u' . $userId . ' ' . $purpose . ' tracks=[' . $tracks . '] mids=[' . $mids . ']', 'info');
+                return $started;
+            }
+            Db::name($this->tableName())->insert(array_merge($data, $map));
+            trace('SFU：注册表新增 u' . $userId . ' ' . $purpose . ' tracks=[' . $tracks . '] mids=[' . $mids . ']', 'info');
+        } catch (\Throwable $e) {
+@@A3
+        $result = $this->cf('POST', '/sessions/' . rawurlencode($row['session_id']) . '/tracks/new', [
+            'sessionDescription' => ['type' => 'offer', 'sdp' => $sdp],
+            'tracks'             => $local,
+        ]);
+@@R3
+        $result = $this->cf('POST', '/sessions/' . rawurlencode($row['session_id']) . '/tracks/new', [
+            'sessionDescription' => ['type' => 'offer', 'sdp' => $sdp],
+            'tracks'             => $local,
+        ]);
+
+        // 把**请求的 track 与上游对每条 track 的原话**都记下来：逐条结果才是"发布到底
+        // 成没成"的唯一依据（整包 200 不代表每条都成）。真机上"客户端说有、注册表说无"
+        // 这种矛盾，只有这一行能当裁判。
+        trace(
+            'SFU：发布请求 ' . json_encode($local) . ' → 回包 '
+            . json_encode($this->tracksOut($result))
+            . ' renegotiation=' . (empty($result['requiresImmediateRenegotiation']) ? '0' : '1'),
+            'info'
+        );
+@@A4
+            if ($row['purpose'] === 'publish') {
+                $members[$uid]['session_id'] = (string)$row['session_id'];
+                $members[$uid]['tracks']     = $this->trackList($row['tracks']);
+            }
+        }
+
+        return success('', [
+            'members' => array_values($members),
+            'epoch'   => $this->epoch($roomId),
+        ]);
+@@R4
+            if ($row['purpose'] === 'publish') {
+                $members[$uid]['session_id'] = (string)$row['session_id'];
+                $members[$uid]['tracks']     = $this->trackList($row['tracks']);
+                if (!array_key_exists('tracks', $row)) {
+                    // **"谁都听不到谁"最硬的证据**：表里根本没有 tracks 这一列
+                    // （多半是更早一版补丁建的旧表，见 ensureTable 的说明）
+                    trace('SFU：注册表这一行没有 tracks 列（表结构不对）：u' . $uid . ' 的发布读不出来', 'error');
+                }
+            }
+        }
+
+        // 读出来的原文（谁、发了什么）：与客户端的快照诊断一对照，就能分清"没写上"
+        // 还是"写进去了但读的不是同一行"
+        $dump = [];
+        foreach ($members as $memberUid => $memberRow) {
+            $dump[] = $memberUid . ':' . (empty($memberRow['tracks']) ? '（空）' : implode('+', $memberRow['tracks']));
+        }
+        trace('SFU：注册表读出 ' . count($members) . ' 人 ｜ ' . (empty($dump) ? '（空）' : implode(' ｜ ', $dump)), 'info');
+
+        return success('', [
+            'members' => array_values($members),
+            'epoch'   => $this->epoch($roomId),
+        ]);

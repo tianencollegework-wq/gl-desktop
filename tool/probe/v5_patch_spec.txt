@@ -1,0 +1,48 @@
+@@A1
+        $this->putMember(
+            (string)$row['room_id'],
+            (string)$row['user_id'],
+            'publish',
+            (string)$row['session_id'],
+            $this->midRaw($midMap),
+            implode(',', $names)
+        );
+        $this->bumpEpoch((string)$row['room_id']);
+
+        return success('', $this->exchangeOut($result));
+@@R1
+        $this->putMember(
+            (string)$row['room_id'],
+            (string)$row['user_id'],
+            'publish',
+            (string)$row['session_id'],
+            $this->midRaw($midMap),
+            implode(',', $names)
+        );
+        $this->bumpEpoch((string)$row['room_id']);
+
+        // ⚠️ **临时诊断标记**（问题定位完就可以删掉这一段）。
+        //
+        // 为什么要有它：真机上"谁都听不到谁"这类问题，最后卡住的往往是**服务端到底
+        // 跑的是哪一版、写进登记表的值是什么、读回来又是什么**这三件事 —— 而要回答
+        // 它们，正常得登服务器看日志。这里把答案直接塞进回包：
+        // 客户端会把这条当成一条"失败的 track"原样打出来（群通话诊断面板 + 手机日志里
+        // 那一行 `track srv 发布失败：<原文>`），于是**在 App 里就能看见服务端的状态**。
+        //
+        // 读回是 `（没有这一列）` → 表结构少了 `tracks`（老版本建的旧表）；
+        // 读回是 `[]` → 写进去了但被丢掉了；读回是 `[mic]` → 服务端这一侧是好的，
+        // 问题在别处（那就是读的人和写的人不是同一份数据）。
+        $after  = Db::name($this->tableName())->where('id', $row['id'])->find();
+        $stored = is_array($after) && array_key_exists('tracks', $after)
+            ? (string)$after['tracks']
+            : '（没有这一列）';
+        $result['tracks'][] = [
+            'trackName'        => 'srv',
+            'mid'              => '',
+            'sessionId'        => '',
+            'status'           => '',
+            'errorCode'        => 'v3 写了=[' . implode(',', $names) . '] 读回=[' . $stored . ']',
+            'errorDescription' => '服务端诊断标记，不是真错误',
+        ];
+
+        return success('', $this->exchangeOut($result));

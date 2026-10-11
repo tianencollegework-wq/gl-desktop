@@ -1,0 +1,4 @@
+@@A1
+    /foreach \(\$this->okTracks\(\$result\) as \$track\) \{([\s\S]{0,400}?)\n        \}/g,
+@@R1
+    /foreach \(\$this->okTracks\(\$result\) as \$track\) \{([\s\S]{0,1500}?)\n        \}/g,

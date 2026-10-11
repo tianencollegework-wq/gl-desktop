@@ -1,0 +1,204 @@
+---
+/**
+ * 首页正文（两种语言共用，靠 `lang` 取字典）。
+ *
+ * 区块顺序照实测规律定（plan §1、§3）：一屏内「主张 + 下载按钮 + 平台图标」→
+ * 功能四段 → 下载区（四平台 + 二维码）。
+ *
+ * 2026-10-10 去过两块：口号换成「让沟通更简单，让连接更真实」，
+ * 「说清楚数据放在哪」那一整段删掉（官网不摆自己的短板）。
+ */
+import QRCode from 'qrcode';
+import BaseLayout from '../layouts/BaseLayout.astro';
+import PhoneMock from './PhoneMock.astro';
+import FeatureBlock from './FeatureBlock.astro';
+import PlatformIcon from './PlatformIcon.astro';
+import { ui } from '../i18n/ui';
+import { absoluteUrl, pagePath } from '../i18n/utils';
+import { getDownloads, PLATFORMS } from '../data/downloads';
+import type { Lang } from '../consts';
+
+interface Props {
+  lang: Lang;
+}
+const { lang } = Astro.props;
+const t = ui[lang];
+const download = pagePath(lang, 'download');
+
+const { platforms, warnings } = await getDownloads();
+warnings.forEach((line) => console.warn(line));
+
+// 二维码指向**本站下载页**：桌面访客扫一下，手机上就打开下载页（微信官网的做法）。
+// 构建期用 qrcode 生成真码，不贴图、不占位。
+const qrSvg = await QRCode.toString(absoluteUrl(lang, 'download'), {
+  type: 'svg',
+  margin: 0,
+  width: 148,
+  errorCorrectionLevel: 'M',
+  color: { dark: '#1a1a1a', light: '#ffffff' },
+});
+
+// 四段功能各配一张**真截图**（名字见 `data/shots.ts`，图由 App 自己渲染出来）：
+// 单聊与群聊 → 聊天页；音视频通话 → 群通话页；通讯录与群组 → 通讯录；发现 → 发现页
+const shots = ['chat', 'group-call', 'contacts', 'discover'] as const;
+const platformLabels: Record<string, string> = {
+  windows: t.platforms.windows,
+  android: t.platforms.android,
+  ios: t.platforms.ios,
+  macos: t.platforms.macos,
+};
+---
+
+<BaseLayout lang={lang} slug="" title={t.meta.title} description={t.meta.description}>
+  <!-- ① Hero：一屏内给完「是什么 + 怎么装」 -->
+  <section class="relative overflow-hidden">
+    <div
+      class="absolute inset-x-0 top-0 -z-10 h-[460px] bg-gradient-to-b from-brand-wash to-transparent"
+      aria-hidden="true"
+    >
+    </div>
+    <div
+      class="mx-auto grid max-w-6xl items-center gap-12 px-5 pt-14 pb-10 md:grid-cols-[1.1fr_1fr] md:pt-20 md:pb-16"
+    >
+      <div>
+        <p class="text-sm font-bold tracking-[0.16em] text-brand-deep uppercase">
+          {t.hero.eyebrow}
+        </p>
+        <h1
+          class="mt-4 text-[2.5rem] leading-[1.12] font-extrabold tracking-tight text-ink sm:text-[3.4rem]"
+        >
+          {t.hero.title}
+        </h1>
+        <p class="mt-5 max-w-xl text-[1.08rem] leading-8 text-ink-soft">{t.hero.lede}</p>
+
+        <div class="mt-8 flex flex-wrap items-center gap-3">
+          <a
+            href={download}
+            class="inline-flex items-center rounded-full bg-brand px-7 py-3.5 text-base font-semibold text-white shadow-sm transition-colors hover:bg-brand-dark"
+          >
+            {t.hero.ctaPrimary}
+          </a>
+          <a
+            href="#features"
+            class="inline-flex items-center rounded-full border border-line bg-white/70 px-7 py-3.5 text-base font-semibold text-ink transition-colors hover:border-brand/40 hover:text-brand-deep"
+          >
+            {t.hero.ctaSecondary}
+          </a>
+        </div>
+
+        <p class="mt-6 text-sm text-muted">{t.hero.forPlatforms}</p>
+      </div>
+
+      <div class="flex justify-center md:justify-end">
+        <PhoneMock shot="list" lang={lang} eager width={268} />
+      </div>
+    </div>
+  </section>
+
+  <!-- ② 平台一行：四个官方品牌标 -->
+  <section class="border-y border-line bg-white/60">
+    <div class="mx-auto max-w-6xl px-5 py-8">
+      <h2 class="sr-only">{t.platforms.title}</h2>
+      <ul class="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        {
+          PLATFORMS.map((key) => {
+            const entry = platforms[key];
+            return (
+              <li class="flex items-center gap-3">
+                <span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-cream-deep text-ink-soft">
+                  <PlatformIcon name={key} size={22} />
+                </span>
+                <span class="min-w-0">
+                  <span class="block text-[0.98rem] font-semibold text-ink">
+                    {platformLabels[key]}
+                  </span>
+                  <span
+                    class={`block text-xs ${entry.available ? 'text-brand-deep' : 'text-muted'}`}
+                  >
+                    {entry.available ? t.platforms.available : t.platforms.soon}
+                  </span>
+                </span>
+              </li>
+            );
+          })
+        }
+      </ul>
+    </div>
+  </section>
+
+  <!-- ③ 功能四段：左右交错 -->
+  <section id="features" class="mx-auto max-w-6xl scroll-mt-20 px-5 py-6 md:py-10">
+    <div class="max-w-2xl">
+      <h2 class="text-3xl font-extrabold text-ink sm:text-4xl">{t.features.title}</h2>
+      <p class="mt-3 text-[1.02rem] leading-7 text-muted">{t.features.lede}</p>
+    </div>
+
+    <div class="divide-y divide-line">
+      {
+        t.features.items.map((item, index) => (
+          <FeatureBlock lang={lang} item={item} index={index} shot={shots[index] ?? 'chat'} />
+        ))
+      }
+    </div>
+  </section>
+
+  <!-- ④ 下载区：四平台 + 二维码 -->
+  <section class="border-t border-line bg-brand-wash/50">
+    <div class="mx-auto grid max-w-6xl items-start gap-10 px-5 py-16 md:grid-cols-[1.4fr_1fr]">
+      <div>
+        <h2 class="text-3xl font-extrabold text-ink sm:text-4xl">{t.download.sectionTitle}</h2>
+        <p class="mt-3 text-[1.02rem] leading-7 text-muted">{t.download.sectionLede}</p>
+
+        <div class="mt-8 grid gap-4 sm:grid-cols-2">
+          {
+            PLATFORMS.map((key) => {
+              const entry = platforms[key];
+              const label = platformLabels[key];
+              const body = (
+                <>
+                  <span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white text-ink-soft shadow-sm">
+                    <PlatformIcon name={key} size={22} />
+                  </span>
+                  <span class="min-w-0">
+                    <span class="block text-[0.98rem] font-semibold text-ink">{label}</span>
+                    <span class="block text-xs text-muted">
+                      {entry.available ? t.platforms.available : t.platforms.soon}
+                    </span>
+                  </span>
+                </>
+              );
+              // data-download：微信内置浏览器里的守卫认这个属性（见 DownloadGuard.astro）
+              return entry.available && entry.url ? (
+                <a
+                  href={entry.url}
+                  rel="noopener"
+                  data-download
+                  class="flex items-center gap-3 rounded-2xl border border-line bg-white p-4 transition-colors hover:border-brand/40"
+                >
+                  {body}
+                </a>
+              ) : (
+                <div class="flex items-center gap-3 rounded-2xl border border-line bg-white/70 p-4">
+                  {body}
+                </div>
+              );
+            })
+          }
+        </div>
+
+        <a
+          href={download}
+          class="mt-6 inline-flex text-[0.95rem] font-semibold text-brand-deep underline decoration-brand/30 decoration-2 underline-offset-4 transition-colors hover:decoration-brand"
+        >
+          {t.nav.download} →
+        </a>
+      </div>
+
+      <div class="rounded-2xl border border-line bg-white p-6 text-center">
+        <h3 class="text-[1.05rem] font-bold text-ink">{t.download.scanTitle}</h3>
+        <div class="mx-auto mt-4 h-[148px] w-[148px] overflow-hidden rounded-lg" set:html={qrSvg} />
+        <p class="mt-4 text-xs leading-6 text-muted">{t.download.scanHint}</p>
+      </div>
+    </div>
+  </section>
+</BaseLayout>

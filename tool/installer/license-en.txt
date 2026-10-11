@@ -1,0 +1,118 @@
+Gracelink (Enxin) Windows Client Software -- License and Disclaimer
+
+This statement applies to the installation and use of the Gracelink desktop client
+software (Chinese name: Enxin / "恩信"; hereinafter "the Software"). Please read it in
+full before use. By clicking "I accept", you confirm that you have read and agree to
+all of its terms.
+
+1. About the Software
+
+1.1 The Software is the Windows desktop client of the Gracelink instant-messaging
+service. It requires an Internet connection to the servers provided by Gracelink and a
+Gracelink account in order to sign in.
+1.2 The Software contains the client only; it includes no server-side software. The
+servers, the account system and the related services are operated and maintained by the
+Gracelink Team ("we", "us").
+1.3 Main features: one-to-one and group chat (text, emoji, images, files and voice
+messages, with quoting, forwarding and recall), contacts and friend management, group
+management (members and admins, group announcement, group mute), one-to-one and
+multi-party group audio/video calls (including screen sharing), signing in by scanning a
+QR code, multiple accounts and a multi-language interface, and the content services in
+the "Discover" section (Media news and Lingting music).
+
+2. License
+
+2.1 We grant you a license to install and use the Software on computers owned or
+controlled by you or your organization, for personal or internal communications.
+2.2 This license is non-exclusive and non-transferable and grants no ownership of any
+account, server or related service.
+2.3 Without our written consent you must not: reverse engineer, decompile, crack or
+modify the Software; remove, obscure or alter any name, logo or copyright notice in the
+Software; or repackage, distribute, rent, sell or otherwise make the Software, or a
+modified version of it, available to any third party.
+2.4 Any fees that may apply to the related services are governed by the rules we
+publish.
+
+3. Account and Security
+
+3.1 A Gracelink account is required to use the Software. The registration, use and
+management of accounts are governed by our rules.
+3.2 Please keep your account and password safe. Sign-in credentials are stored in
+encrypted form on your computer; you are responsible for any loss caused by others
+using your device, by disclosure of your credentials, or by lending your account to
+someone else.
+3.3 If you notice unusual sign-ins or that your account has been taken over, change
+your password promptly and contact us.
+
+4. Acceptable Use
+
+4.1 Please comply with the laws and regulations of your country or region and with our
+rules.
+4.2 Do not use the Software to create, copy, publish or spread information that is
+unlawful or infringes the lawful rights of others; do not harass, defraud or impersonate
+others.
+4.3 Without the other party's consent, do not record, publish or spread the content of
+calls or chats.
+4.4 Do not use the Software to send bulk unsolicited messages, register accounts in
+bulk, scrape or otherwise misuse server data, and do not interfere with or attack the
+servers or other users.
+4.5 If you breach the rules above, we may restrict or terminate the use of the Software
+and the services by the account concerned.
+
+5. Data and Privacy
+
+5.1 The Software stores chat history, friend and group information and sign-in state on
+your computer (the Windows user data directory, under %APPDATA%). Please back this data
+up yourself; uninstalling the Software does not delete it automatically.
+5.2 To deliver messages, keep devices in sync and carry out audio/video calls, the
+related messages, files and call data are processed by Gracelink's servers or by relay
+servers we designate, and are stored temporarily to the extent necessary to provide
+those features.
+5.3 Apart from what is necessary to provide the features of the Software, to keep the
+service running properly and to comply with the law, we do not use the content of your
+chats for any other purpose.
+5.4 The details of how personal information is handled are set out in the privacy
+policy we publish.
+
+6. Third-Party Components
+
+The Software uses third-party open-source components such as Flutter. Those components
+are provided under their own license terms; the relevant copyright and license notices
+are included in the files distributed with the Software or on the components' project
+pages.
+
+7. Disclaimer
+
+7.1 The Software is provided "as is". To the maximum extent permitted by law, we give
+no express or implied warranty as to its fitness for a particular purpose, its continued
+availability or its freedom from errors.
+7.2 Messaging and calling depend on the network and on our servers and may be delayed,
+interrupted or lose data because of network conditions, the device environment, system
+settings, maintenance or upgrades, or events beyond our control. Do not use the Software
+for emergency rescue, medical or life-safety purposes.
+7.3 To the maximum extent permitted by law, we are not liable for indirect losses, loss
+of data or loss of profit arising from the use of, or the inability to use, the
+Software.
+7.4 Nothing in this section excludes or limits any liability that cannot be excluded or
+limited by law.
+
+8. Updates and Changes
+
+8.1 We may update the Software and this statement; an updated statement is supplied with
+each new version. By installing or continuing to use a new version, you accept the
+updated statement.
+8.2 If you do not agree, you may stop using the Software and uninstall it: uninstall
+Gracelink in Windows "Settings > Apps", or click "Uninstall Gracelink" on the
+"About Gracelink" page under "Me" in the Software.
+
+9. Miscellaneous
+
+This statement is governed by and construed in accordance with the laws of your country
+or region. If any provision is held invalid or unenforceable, the remaining provisions
+remain in effect.
+
+By clicking "I accept", you confirm that you have read and agree to all of the terms
+above. If you do not agree, click "Cancel" to exit the installer.
+
+(This is the English translation of the Chinese-language statement supplied with this
+software. If the two texts differ in meaning, the Chinese text prevails.)

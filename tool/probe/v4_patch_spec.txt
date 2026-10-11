@@ -1,0 +1,83 @@
+@@A1
+        try {
+            $exists = Db::name($this->tableName())->where($map)->find();
+            if ($exists) {
+                Db::name($this->tableName())->where('id', $exists['id'])->update($data);
+                trace('SFU：注册表改写 u' . $userId . ' ' . $purpose . ' tracks=[' . $tracks . '] mids=[' . $mids . ']', 'info');
+                return $started;
+            }
+            Db::name($this->tableName())->insert(array_merge($data, $map));
+            trace('SFU：注册表新增 u' . $userId . ' ' . $purpose . ' tracks=[' . $tracks . '] mids=[' . $mids . ']', 'info');
+        } catch (\Throwable $e) {
+@@R1
+        try {
+            $exists = Db::name($this->tableName())->where($map)->find();
+            if ($exists) {
+                Db::name($this->tableName())->where('id', $exists['id'])->update($data);
+                $this->verifyMember((int)$exists['id'], $userId, $purpose, $tracks, $mids);
+                return $started;
+            }
+            Db::name($this->tableName())->insert(array_merge($data, $map));
+            $insertId = (int)Db::name($this->tableName())->getLastInsID();
+            $this->verifyMember($insertId, $userId, $purpose, $tracks, $mids);
+        } catch (\Throwable $e) {
+@@A2
+    /**
+     * 续命一行（只动 `updated_at`）
+     */
+    private function touch($row, $mids = null)
+@@R2
+    /**
+     * 写完**回读自检**。
+     *
+     * 为什么必须有这一步：框架会拿它缓存的**表结构**来裁剪写入字段 —— 那个缓存一旦和
+     * 真实表结构不一致（表是用更早一版补丁建的、后来加了列），像 `tracks` / `mids`
+     * 这种"新列"会被**静默丢掉**：不报错、不落日志、返回值照旧。真机上就是这么长的
+     * ——"发布成功、Cloudflare 也接受了，登记表里却永远什么都没有"。
+     *
+     * 所以写完立刻读回来对一下：对不上就用一句**显式 SQL** 再写一次（绕过字段过滤），
+     * 并把这件事写进日志。这样"静默失败"这一类问题从根上没了。
+     */
+    private function verifyMember($id, $userId, $purpose, $tracks, $mids)
+    {
+        if ($id <= 0) {
+            trace('SFU：注册表写完拿不到行 id，无法自检', 'error');
+            return;
+        }
+        try {
+            $row = Db::name($this->tableName())->where('id', $id)->find();
+        } catch (\Throwable $e) {
+            return;
+        }
+        $gotTracks = is_array($row) ? (string)($row['tracks'] ?? '') : '';
+        $gotMids   = is_array($row) ? (string)($row['mids'] ?? '') : '';
+        if ($gotTracks === (string)$tracks && $gotMids === (string)$mids) {
+            trace('SFU：注册表写入 u' . $userId . ' ' . $purpose . ' tracks=[' . $tracks . '] mids=[' . $mids . ']', 'info');
+            return;
+        }
+        trace(
+            'SFU：注册表写入被丢掉了（框架的字段缓存和表结构对不上？）u' . $userId
+            . ' ' . $purpose . ' 期望 tracks=[' . $tracks . '] 实际 tracks=[' . $gotTracks . ']'
+            . '，改用显式 SQL 重写',
+            'error'
+        );
+        try {
+            Db::execute(
+                'UPDATE `' . $this->tablePrefix() . $this->tableName() . '`'
+                . ' SET `tracks` = ?, `mids` = ? WHERE `id` = ?',
+                [(string)$tracks, (string)$mids, $id]
+            );
+            $after = Db::name($this->tableName())->where('id', $id)->find();
+            trace(
+                'SFU：显式 SQL 重写后 tracks=[' . (string)($after['tracks'] ?? '') . ']',
+                (string)($after['tracks'] ?? '') === (string)$tracks ? 'info' : 'error'
+            );
+        } catch (\Throwable $e) {
+            trace('SFU：显式 SQL 重写失败：' . $e->getMessage(), 'error');
+        }
+    }
+
+    /**
+     * 续命一行（只动 `updated_at`）
+     */
+    private function touch($row, $mids = null)

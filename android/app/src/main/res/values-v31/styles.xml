@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12（API 31）起系统**强制接管**启动屏（SplashScreen API）：App 只能交
+     「一层纯色背景 + 一个图标」，而且图标一定会被圆形蒙版裁 —— 官方规格是
+     288dp 画布、可见区是直径 192dp 的圆（画布的 2/3），
+     见 developer.android.com/develop/ui/views/launch/splash-screen。
+
+     我们的 logo 是白底方图、底下还有一行 GraceLink，直接交上去四角和那行字都会被切掉，
+     所以这里给的是 launch_logo_pad：原图缩到画布 62%（< 66.7%，留余量）、四周填透明。
+     蒙版只切到透明区，原图一个像素不少，只是整体小一圈。
+     资源生成：tool/probe/make_launch_logo.js
+
+     注意没有 values-night-v31：values-night 已被整体删掉（见 values/styles.xml），
+     否则它优先级高于 version 限定符，会把下面这两条盖掉。 -->
+<resources>
+    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowBackground">@drawable/launch_background</item>
+        <item name="android:windowSplashScreenBackground">@android:color/white</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/launch_logo_pad</item>
+    </style>
+</resources>

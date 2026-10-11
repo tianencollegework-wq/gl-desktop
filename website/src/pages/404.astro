@@ -1,0 +1,48 @@
+---
+/**
+ * 404。**不按语言分**（静态托管下的 404 只有一个文件），所以中英并列：
+ * 中文在前（主市场），英文在后。
+ */
+import '../styles/global.css';
+import BrandMark from '../components/BrandMark.astro';
+import { ui } from '../i18n/ui';
+
+const zh = ui.zh.notFound;
+const en = ui.en.notFound;
+---
+
+<!doctype html>
+<html lang="zh-Hans">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>404 · Gracelink</title>
+    <meta name="robots" content="noindex" />
+    <link rel="icon" href="/logo-192.png" type="image/png" sizes="192x192" />
+  </head>
+  <body class="grid min-h-dvh place-items-center bg-cream px-6">
+    <main class="w-full max-w-md text-center">
+      <div class="flex justify-center">
+        <BrandMark lang="zh" size={40} withWordmark={false} />
+      </div>
+      <p class="mt-5 text-5xl font-extrabold text-brand">404</p>
+      <h1 class="mt-3 text-xl font-bold text-ink">{zh.title}</h1>
+      <p class="mt-2 text-sm leading-7 text-muted">{zh.lede}</p>
+      <div class="mt-7 flex items-center justify-center gap-3">
+        <a
+          href="/zh/"
+          class="rounded-full bg-brand px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-brand-dark"
+          >{zh.backHome}</a
+        >
+        <a
+          href="/en/"
+          class="rounded-full border border-line bg-white px-5 py-2.5 text-sm font-semibold text-ink transition-colors hover:border-brand/40"
+          >Back to home</a
+        >
+      </div>
+      <p class="mt-8 text-xs leading-6 text-muted/80">
+        {en.title} — {en.lede}
+      </p>
+    </main>
+  </body>
+</html>

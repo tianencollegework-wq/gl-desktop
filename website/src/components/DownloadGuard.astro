@@ -1,0 +1,208 @@
+---
+/**
+ * 应用内浏览器（in-app webview）里的下载守卫。
+ *
+ * 问题：安装包是 `.exe` / `.apk` 的直链，用户在「某个 App 里的浏览器」点一下就开始下。
+ * 两个后果都不轻：
+ * * 微信这类客户端把「外链直接下安装包」判成诱导下载 —— 轻则当次拦掉（用户看到的
+ *   是一个空白页），重则**整个域名**被拉黑，那以后所有在微信里分享的链接都打不开；
+ * * 很多内置浏览器本来就没有下载能力（点下去没反应），用户只会以为「官网坏了」。
+ *
+ * 做法：下载链接**不直接跳**。点下去先在捕获阶段判一次 User-Agent：
+ * * 是应用内浏览器 → `preventDefault()`，弹一张「请在浏览器中打开」的说明，并把地址
+ *   显示出来（附「复制下载地址」，因为最顺的走法就是复制后到浏览器粘贴）；
+ * * 不是 → 什么都不做，链接照常跳转（正常浏览器里**不多一次点击**）。
+ *
+ * 判定分两层（`isInAppBrowser`）：
+ * 1. 各家的 UA 标记：微信 `micromessenger`、企业微信 `wxwork`、**QQ `qq/`**、微博、钉钉、
+ *    支付宝、抖音/头条系、小红书、快手、飞书…；
+ * 2. Android 的通用标记 `; wv)`（WebView）—— 绝大多数 App 的内置浏览器都带它，而
+ *    Chrome / Firefox / 三星浏览器这些真浏览器都不带。
+ *
+ * 三处刻意避开的坑（每条都是踩过的）：
+ * * **不能用 `mqqbrowser` 认 QQ**：微信安卓版的 UA 里也有它，而独立的「QQ 浏览器」同样
+ *   带它 —— 那是个真浏览器，能正常下载，拦了就是错的。钉 QQ 要用带斜杠的 `qq/`；
+ * * **不用 `Element.closest`**：微信 / QQ 的 X5 内核版本很杂，旧内核上没有它，这里手写
+ *   向上遍历；
+ * * **可见性用行内 `style.display`**，不用 `hidden` 属性：UA 的 `[hidden]` 与 Tailwind 的
+ *   `.grid` 同为一条类选择器的权重，谁在后面谁赢 —— 结果就是「隐藏的弹层显示在页面上」。
+ *
+ * 这个脚本随 `BaseLayout` 出现在每个页面（内联，仍然 0 个外部 JS 文件）。
+ */
+import { ui } from '../i18n/ui';
+import type { Lang } from '../consts';
+
+interface Props {
+  lang: Lang;
+}
+const { lang } = Astro.props;
+const t = ui[lang].inAppGuard;
+
+/**
+ * 拼出内联脚本。字符串从字典里来（中英各一份），用 `JSON.stringify` 注入 ——
+ * `is:inline` 的脚本不会被 Astro 处理，`define:vars` 对它也不生效，所以这里
+ * 自己把值塞进去。
+ */
+const script = `(function () {
+  var S = ${JSON.stringify(t)};
+
+  // 应用内浏览器的 UA 标记。只写钉得住「某个 App 的内置浏览器」的那一段：
+  // 独立的浏览器（QQBrowser、百度浏览器、UC…）不在列，它们能正常下载。
+  var IN_APP_TOKENS = [
+    'micromessenger', // 微信
+    'wxwork',         // 企业微信
+    'qq/',            // QQ（注意：不是 mqqbrowser）
+    'weibo',          // 微博
+    'dingtalk',       // 钉钉
+    'alipayclient',   // 支付宝
+    'aweme',          // 抖音
+    'bytedance',      // 头条系
+    'toutiao',
+    'xiaohongshu',    // 小红书
+    'xhs/',
+    'biliapp',        // 哔哩哔哩
+    'baiduboxapp',    // 百度 App
+    'kwai',           // 快手
+    'lark',           // 飞书
+    'feishu'
+  ];
+
+  var panel = document.getElementById('gl-inapp-guard');
+  if (!panel) return;
+  var urlBox = panel.querySelector('[data-guard-url]');
+  var copyBtn = panel.querySelector('[data-guard-copy]');
+  var closeBtn = panel.querySelector('[data-guard-close]');
+  var pending = '';
+
+  // 这段字符串会原样进页面 HTML，所以这里只用行注释：块注释开头那两个星号会被
+  // 构建自检的「Markdown 星号」判据当成正文星号打印出来了。
+  // 从被点的元素往上找下载链接（旧内核没有 closest，手写一遍）。
+  function downloadLinkFrom(node) {
+    while (node && node !== document) {
+      if (node.nodeType === 1 && node.getAttribute) {
+        if (node.getAttribute('data-download') !== null) return node;
+        // 兜底：将来某处直接链了安装包而忘了写 data-download，也不能让它裸着点下去
+        var href = node.getAttribute('href') || '';
+        if (/\\.(exe|apk|dmg|ipa)($|\\?)/i.test(href)) return node;
+      }
+      node = node.parentNode;
+    }
+    return null;
+  }
+
+  function isInAppBrowser(ua) {
+    var s = String(ua || '').toLowerCase();
+    for (var i = 0; i < IN_APP_TOKENS.length; i++) {
+      if (s.indexOf(IN_APP_TOKENS[i]) !== -1) return true;
+    }
+    // Android WebView 的通用标记；真浏览器都没有这一段
+    return s.indexOf('; wv)') !== -1;
+  }
+
+  function openGuard(href) {
+    pending = href || '';
+    if (urlBox) urlBox.textContent = pending;
+    if (copyBtn) copyBtn.textContent = S.copy;
+    panel.style.display = 'grid';
+  }
+
+  function closeGuard() {
+    panel.style.display = 'none';
+  }
+
+  if (closeBtn) closeBtn.addEventListener('click', closeGuard);
+  panel.addEventListener('click', function (event) {
+    // 点遮罩空白处关闭（点内容区不关，免得复制时误触）
+    if (event.target === panel) closeGuard();
+  });
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape') closeGuard();
+  });
+
+  if (copyBtn) {
+    copyBtn.addEventListener('click', function () {
+      var report = function (ok) {
+        copyBtn.textContent = ok ? S.copied : S.copyFail;
+      };
+      var legacyCopy = function () {
+        try {
+          var area = document.createElement('textarea');
+          area.value = pending;
+          area.setAttribute('readonly', '');
+          area.style.position = 'fixed';
+          area.style.opacity = '0';
+          document.body.appendChild(area);
+          area.select();
+          var ok = document.execCommand('copy');
+          document.body.removeChild(area);
+          report(ok);
+        } catch (error) {
+          report(false);
+        }
+      };
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(pending).then(
+            function () { report(true); },
+            legacyCopy,
+          );
+          return;
+        }
+      } catch (error) {
+        // 落到下面的老办法
+      }
+      legacyCopy();
+    });
+  }
+
+  document.addEventListener(
+    'click',
+    function (event) {
+      var link = downloadLinkFrom(event.target);
+      if (!link) return;
+      if (!isInAppBrowser(navigator.userAgent)) return;
+      // 在应用内浏览器里：链接不跳，改成弹说明
+      event.preventDefault();
+      openGuard(link.getAttribute('href') || link.href || '');
+    },
+    true,
+  );
+})();`;
+---
+
+<div
+  id="gl-inapp-guard"
+  style="display:none"
+  class="fixed inset-0 z-[100] grid place-items-center bg-ink/60 px-5"
+  role="dialog"
+  aria-modal="true"
+  aria-label={t.title}
+>
+  <div class="w-full max-w-md rounded-2xl bg-white p-7 shadow-xl">
+    <h2 class="text-xl font-bold text-ink">{t.title}</h2>
+    <p class="mt-3 text-[0.98rem] leading-7 text-ink-soft">{t.body}</p>
+    <p
+      data-guard-url
+      class="mt-4 rounded-xl bg-cream-deep/70 px-4 py-3 text-xs leading-6 break-all text-muted"
+    >
+    </p>
+    <div class="mt-6 flex flex-col gap-2.5 sm:flex-row">
+      <button
+        type="button"
+        data-guard-copy
+        class="inline-flex items-center justify-center rounded-full border border-line bg-white px-5 py-3 text-[0.95rem] font-semibold text-ink transition-colors hover:border-brand/40 hover:text-brand-deep"
+      >
+        {t.copy}
+      </button>
+      <button
+        type="button"
+        data-guard-close
+        class="inline-flex items-center justify-center rounded-full bg-brand px-5 py-3 text-[0.95rem] font-semibold text-white transition-colors hover:bg-brand-dark"
+      >
+        {t.close}
+      </button>
+    </div>
+  </div>
+</div>
+
+<script is:inline set:html={script} />

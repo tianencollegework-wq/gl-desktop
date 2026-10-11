@@ -1,0 +1,49 @@
+---
+/**
+ * 平台图标。**用各家官方的品牌图形**，不自己画几何字形。
+ *
+ * 路径来自 `simple-icons`（CC0）：
+ * * Android → 机器人（`siAndroid`）
+ * * macOS → 苹果标（`siApple`）
+ * * iOS → App Store 标（`siAppstore`）：iOS 上就是这个渠道，
+ *   而且和 macOS 的苹果标区分得开，一排四个不会出现两个一样的图
+ * * Windows → 四格（simple-icons 因商标政策不收微软的标，这里是它的标准四格，
+ *   和官方 logo 同构：四个等大方块、留缝）
+ *
+ * 参考：0xchat 的下载页用的也是品牌标（Font Awesome 那一套 apple / android /
+ * windows），不是自画的抽象图形（用户 2026-10-10 的要求）。
+ */
+import { siAndroid, siApple, siAppstore } from 'simple-icons';
+
+interface Props {
+  name: 'windows' | 'android' | 'ios' | 'macos';
+  size?: number;
+  class?: string;
+}
+const { name, size = 22, class: className = '' } = Astro.props;
+
+/** Windows 的四格（官方 logo 同构） */
+const WINDOWS_PATH =
+  'M2.6 3.6h8.5v8.5H2.6zM12.9 3.6h8.5v8.5h-8.5zM2.6 13.1h8.5v8.5H2.6zM12.9 13.1h8.5v8.5h-8.5z';
+
+const icons = {
+  windows: { path: WINDOWS_PATH, title: 'Windows', multi: true },
+  android: { path: siAndroid.path, title: siAndroid.title, multi: false },
+  ios: { path: siAppstore.path, title: siAppstore.title, multi: false },
+  macos: { path: siApple.path, title: siApple.title, multi: false },
+} as const;
+
+const icon = icons[name];
+---
+
+<svg
+  width={size}
+  height={size}
+  viewBox="0 0 24 24"
+  fill="currentColor"
+  role="img"
+  aria-label={icon.title}
+  class={`shrink-0 ${className}`}
+>
+  <path d={icon.path}></path>
+</svg>

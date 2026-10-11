@@ -1,0 +1,47 @@
+---
+/**
+ * 功能段：一段文案 + 一台样机，左右交错。
+ */
+import PhoneMock from './PhoneMock.astro';
+import type { Lang } from '../consts';
+import type { Shot } from '../data/shots';
+
+interface Item {
+  title: string;
+  body: string;
+  bullets: readonly string[];
+}
+
+interface Props {
+  lang: Lang;
+  item: Item;
+  index: number;
+  /** 这一段配哪张 App 截图（真图，见 `PhoneMock` 的说明） */
+  shot: Shot;
+}
+const { lang, item, index, shot } = Astro.props;
+const reversed = index % 2 === 1;
+---
+
+<section class="grid items-center gap-10 py-14 md:grid-cols-2 md:gap-16 md:py-16">
+  <div class={reversed ? 'md:order-2' : ''}>
+    <h3 class="text-2xl font-extrabold text-ink sm:text-3xl">{item.title}</h3>
+    <p class="mt-3 max-w-prose text-[1.02rem] leading-7 text-ink-soft">{item.body}</p>
+    <ul class="mt-5 space-y-2">
+      {
+        item.bullets.map((bullet) => (
+          <li class="flex items-start gap-2.5 text-[0.98rem] text-muted">
+            <span class="mt-2 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-brand" />
+            <span>{bullet}</span>
+          </li>
+        ))
+      }
+    </ul>
+  </div>
+
+  <div
+    class={`flex justify-center ${reversed ? 'md:order-1 md:justify-start' : 'md:justify-end'}`}
+  >
+    <PhoneMock shot={shot} lang={lang} />
+  </div>
+</section>

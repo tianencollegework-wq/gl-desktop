@@ -1,0 +1,53 @@
+@@A1
+console.log('');
+if (failures) {
+@@R1
+// ------------------------------------------- 12) 注册表的写入（谁发布了什么）
+//
+// 这一组是**真机上最贵的一个 bug 换来的**：`publish()` 里把 okTracks 返回值的键
+// 写成了 CF 那边的驼峰 `trackName`，而 okTracks 的键其实是下划线那套（见 tracksOut）。
+// 于是永远读到空字符串、把每一条 track 都 `continue` 掉：
+//   发布回包照旧正常（客户端看到“上游接受了 mic”），
+//   但注册表里写进去的 tracks 永远是空 → 谁都不会来订阅我
+//   → 两台手机都进得去、都看得见人，却谁都听不到谁。
+// 静态检查拦不住所有笔误，但“读了一个不存在的键”这一类能一眼拦住。
+const okTracksBody = controller.match(/private function okTracks[\s\S]*?\n    \}/);
+const okTracksKeys = new Set(
+  okTracksBody
+    ? [...okTracksBody[0].matchAll(/\$track\['([a-z_]+)'\]/g)].map((m) => m[1])
+    : [],
+);
+const okTracksReaders = [
+  ...controller.matchAll(
+    /foreach \(\$this->okTracks\(\$result\) as \$track\) \{([\s\S]{0,400}?)\n        \}/g,
+  ),
+];
+check(
+  'okTracks 的返回值按它自己的键读（下划线那套，不是 CF 的驼峰）',
+  okTracksKeys.has('track_name') &&
+    okTracksReaders.length >= 2 &&
+    okTracksReaders.every((m) => !/\['trackName'\]/.test(m[1])),
+  'okTracks 的键：' +
+    [...okTracksKeys].join(', ') +
+    '；消费点 ' +
+    okTracksReaders.length +
+    ' 个',
+);
+
+// 写完必须回读自检：框架会按它缓存的表结构裁字段，多出来的列会被**静默丢掉**
+check(
+  'putMember 写完回读自检（被丢掉就用显式 SQL 重写）',
+  /private function putMember[\s\S]{0,1400}?verifyMember\(/.test(controller) &&
+    /private function verifyMember[\s\S]{0,1600}?Db::execute\([\s\S]{0,200}?SET `tracks`/.test(
+      controller,
+    ),
+);
+check(
+  '建表之后验列（老结构缺 tracks / mids 也能自愈）',
+  /private function ensureColumns[\s\S]{0,900}?ALTER TABLE[\s\S]{0,200}?ADD COLUMN/.test(
+    controller,
+  ),
+);
+
+console.log('');
+if (failures) {

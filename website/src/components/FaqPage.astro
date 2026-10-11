@@ -1,0 +1,115 @@
+---
+/**
+ * 常见问题页。
+ *
+ * 折叠用**原生 `<details>`**，不带一行 JS：键盘可聚焦、读屏可朗读、Ctrl+F 也能
+ * 搜到收起的内容（这也是不自己做「手风琴组件」的原因 —— 那需要脚本，还会把
+ * 正文从搜索里藏掉）。
+ *
+ * 同时输出 `FAQPage` 结构化数据：问答内容都是我们自己的，标出来有助于搜索结果
+ * 直接把问题与答案展示出来。
+ */
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { FAQ, type FaqDoc } from '../content/faq';
+import { SUPPORT_EMAIL } from '../content/legal';
+import { ui } from '../i18n/ui';
+import { absoluteUrl } from '../i18n/utils';
+import type { Lang } from '../consts';
+
+interface Props {
+  lang: Lang;
+}
+
+const { lang } = Astro.props;
+const t = ui[lang];
+const doc: FaqDoc = FAQ[lang];
+const url = absoluteUrl(lang, 'faq');
+
+/** 各组的小标题在目录里当锚点（g1、g2…） */
+const anchor = (index: number) => `g${index + 1}`;
+
+const jsonLd = JSON.stringify({
+  '@context': 'https://schema.org',
+  '@type': 'FAQPage',
+  inLanguage: lang === 'zh' ? 'zh-Hans' : 'en',
+  url,
+  mainEntity: doc.groups.flatMap((group) =>
+    group.items.map((item) => ({
+      '@type': 'Question',
+      name: item.q,
+      acceptedAnswer: { '@type': 'Answer', text: item.a.join(' ') },
+    })),
+  ),
+});
+---
+
+<BaseLayout
+  lang={lang}
+  slug="faq"
+  title={`${doc.title} · ${t.wordmark}`}
+  description={doc.lede[0]}
+>
+  <section class="mx-auto max-w-3xl px-5 py-14 md:py-16">
+    <h1 class="text-[2.1rem] leading-tight font-extrabold text-ink sm:text-[2.6rem]">{doc.title}</h1>
+
+    <div class="mt-5 space-y-3">
+      {doc.lede.map((paragraph) => <p class="text-[1.02rem] leading-8 text-ink-soft">{paragraph}</p>)}
+    </div>
+
+    <!-- 分类导航 -->
+    <nav class="mt-8 flex flex-wrap gap-2">
+      {
+        doc.groups.map((group, index) => (
+          <a
+            href={`#${anchor(index)}`}
+            class="rounded-full border border-line bg-white px-3.5 py-1.5 text-[0.85rem] font-medium text-ink-soft transition-colors hover:border-brand/40 hover:text-brand-deep"
+          >
+            {group.title}
+          </a>
+        ))
+      }
+    </nav>
+
+    <div class="mt-12 space-y-12">
+      {
+        doc.groups.map((group, index) => (
+          <section id={anchor(index)} class="scroll-mt-24">
+            <h2 class="text-[1.2rem] font-bold text-ink sm:text-[1.35rem]">{group.title}</h2>
+
+            <div class="mt-4 divide-y divide-line border-y border-line">
+              {group.items.map((item) => (
+                <details class="group py-1">
+                  <summary class="flex cursor-pointer list-none items-start gap-3 py-3.5 text-[1.02rem] leading-7 font-semibold text-ink [&::-webkit-details-marker]:hidden">
+                    <span class="mt-[0.35rem] text-brand transition-transform group-open:rotate-90" aria-hidden="true">
+                      ▸
+                    </span>
+                    <span>{item.q}</span>
+                  </summary>
+                  <div class="space-y-3 pb-4 pl-6">
+                    {item.a.map((paragraph) => (
+                      <p class="text-[0.97rem] leading-8 text-ink-soft">{paragraph}</p>
+                    ))}
+                  </div>
+                </details>
+              ))}
+            </div>
+          </section>
+        ))
+      }
+    </div>
+
+    <!-- 兜底：没找到答案时去哪 -->
+    <div class="mt-14 rounded-2xl border border-line bg-white p-6">
+      <h2 class="text-[1.05rem] font-bold text-ink">{doc.contact.title}</h2>
+      {doc.contact.body.map((paragraph) => <p class="mt-2 text-[0.95rem] leading-7 text-muted">{paragraph}</p>)}
+      <a
+        href={`mailto:${SUPPORT_EMAIL}`}
+        class="mt-4 inline-flex items-center rounded-full bg-brand px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-brand-dark"
+      >
+        {SUPPORT_EMAIL}
+      </a>
+    </div>
+  </section>
+
+  <script type="application/ld+json" is:inline set:html={jsonLd} />
+</BaseLayout>

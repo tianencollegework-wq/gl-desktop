@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 本文件里只有亮色主题，**故意没有 values-night 版本**。
+
+     原因：App 只有亮色主题（lib/app.dart 只给了 theme: AppTheme.light，没有 darkTheme）。
+     Flutter 模板自带的 values-night/styles.xml 把启动窗口设成 Theme.Black.NoTitleBar，
+     于是深色系统下冷启动会「先黑一屏再闪白」。删掉它之后，无论系统深浅色，
+     启动窗口和 Flutter 界面之间都是白 → 白，不再闪。
+
+     （另外：values-night 的优先级高于 values-v31，若留着 night 版本，Android 12+ 的
+     启动屏属性反而会被它盖掉，见 values-v31/styles.xml。） -->
+<resources>
+    <!-- 进程启动期间挂在 Activity 上的主题（AndroidManifest 里 android:theme） -->
+    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <!-- 启动窗口那一屏。自动在 Flutter 画出第一帧后消失 -->
+        <item name="android:windowBackground">@drawable/launch_background</item>
+    </style>
+
+    <!-- 进程起来之后换上的主题（Manifest 里的 io.flutter.embedding.android.NormalTheme）：
+         引擎初始化期间、以及之后一直垫在 Flutter 界面背后。
+         同样锁白：深色系统下别在 Flutter 界面边缘露黑边。 -->
+    <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowBackground">@android:color/white</item>
+    </style>
+</resources>

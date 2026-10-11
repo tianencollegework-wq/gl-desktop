@@ -1,0 +1,118 @@
+---
+/**
+ * 法律页（服务条款 / 隐私政策）的正文骨架。
+ *
+ * 结构刻意做得**可核对、可引用**：标题 + 更新日期 + 导读 + 本页目录（锚点）+
+ * 编号各节 + 文末的版本说明，不搞折叠、不做「展开全文」—— 这类文档要能被
+ * 直接搜到、被直接引到某一条（`#s7` 那种）。
+ *
+ * 邮箱自动变成可点链接：正文里写的是纯文本 `support@gracelink.cc`，
+ * 由这里统一替换成 `mailto:`（文档里那几处不用各写一遍标签）。
+ */
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { SUPPORT_EMAIL, type LegalDoc } from '../content/legal';
+import { ui } from '../i18n/ui';
+import { absoluteUrl, type Slug } from '../i18n/utils';
+import type { Lang } from '../consts';
+
+interface Props {
+  lang: Lang;
+  slug: Slug;
+  doc: LegalDoc;
+  updated: string;
+}
+
+const { lang, slug, doc, updated } = Astro.props;
+const t = ui[lang];
+
+/** 先转义，再把邮箱换成链接（正文是我们自己写的，转义只是防住将来手滑写进 & 或 <） */
+function withMailto(text: string): string {
+  const escaped = text
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+  return escaped.replaceAll(
+    SUPPORT_EMAIL,
+    `<a class="font-semibold text-brand-deep underline decoration-brand/30 underline-offset-4 hover:decoration-brand" href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a>`,
+  );
+}
+
+/** 每节的锚点 id：与文档顺序绑定，中英两侧编号一致（s1 = 第一节） */
+const anchor = (index: number) => `s${index + 1}`;
+
+const jsonLd = JSON.stringify({
+  '@context': 'https://schema.org',
+  '@type': 'WebPage',
+  name: doc.title,
+  description: doc.lede[0],
+  inLanguage: lang === 'zh' ? 'zh-Hans' : 'en',
+  dateModified: updated,
+  url: absoluteUrl(lang, slug),
+});
+---
+
+<BaseLayout
+  lang={lang}
+  slug={slug}
+  title={`${doc.title} · ${t.wordmark}`}
+  description={doc.lede[0]}
+>
+  <article class="mx-auto max-w-3xl px-5 py-14 md:py-16">
+    <h1 class="text-[2rem] leading-tight font-extrabold text-ink sm:text-[2.6rem]">
+      {doc.title}
+    </h1>
+    <p class="mt-3 text-sm text-muted">{t.doc.updated}：{updated}</p>
+
+    <div class="mt-6 space-y-3">
+      {doc.lede.map((paragraph) => <p class="text-[1.02rem] leading-8 text-ink-soft" set:html={withMailto(paragraph)} />)}
+    </div>
+
+    <!-- 本页目录：长文档得能一眼看到有哪几节 -->
+    <nav class="mt-9 rounded-2xl border border-line bg-white/70 px-5 py-4">
+      <h2 class="text-sm font-bold text-ink">{t.doc.toc}</h2>
+      <ol class="mt-3 grid gap-1.5 sm:grid-cols-2">
+        {
+          doc.sections.map((section, index) => (
+            <li>
+              <a
+                href={`#${anchor(index)}`}
+                class="text-[0.9rem] text-muted transition-colors hover:text-brand-deep"
+              >
+                {section.heading}
+              </a>
+            </li>
+          ))
+        }
+      </ol>
+    </nav>
+
+    <div class="mt-10 space-y-9">
+      {
+        doc.sections.map((section, index) => (
+          <section id={anchor(index)} class="scroll-mt-24">
+            <h2 class="text-[1.15rem] font-bold text-ink sm:text-[1.25rem]">{section.heading}</h2>
+            {section.paras?.map((paragraph) => (
+              <p class="mt-3 text-[0.98rem] leading-8 text-ink-soft" set:html={withMailto(paragraph)} />
+            ))}
+            {section.items && section.items.length > 0 && (
+              <ul class="mt-3 space-y-2.5">
+                {section.items.map((item) => (
+                  <li class="flex gap-3 text-[0.98rem] leading-8 text-ink-soft">
+                    <span class="mt-[0.7rem] h-1.5 w-1.5 shrink-0 rounded-full bg-brand/50" aria-hidden="true" />
+                    <span set:html={withMailto(item)} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        ))
+      }
+    </div>
+
+    <div class="mt-12 border-t border-line pt-6">
+      {doc.closing.map((line) => <p class="mt-2 text-sm leading-7 text-muted" set:html={withMailto(line)} />)}
+    </div>
+  </article>
+
+  <script type="application/ld+json" is:inline set:html={jsonLd} />
+</BaseLayout>

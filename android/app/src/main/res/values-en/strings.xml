@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  英文系统下的桌面名（跟 i18n 里 `user.appName` 的英文文案一致）。
+  注意：这个只跟**系统语言**走，App 内那个语言开关不会改桌面图标的名字。
+-->
+<resources>
+    <string name="app_name">Gracelink</string>
+</resources>

@@ -1,0 +1,33 @@
+@@A1
+        $after  = Db::name($this->tableName())->where('id', $row['id'])->find();
+        $stored = is_array($after) && array_key_exists('tracks', $after)
+            ? (string)$after['tracks']
+            : '（没有这一列）';
+        $result['tracks'][] = [
+            'trackName'        => 'srv',
+            'mid'              => '',
+            'sessionId'        => '',
+            'status'           => '',
+            'errorCode'        => 'v3 写了=[' . implode(',', $names) . '] 读回=[' . $stored . ']',
+            'errorDescription' => '服务端诊断标记，不是真错误',
+        ];
+@@R1
+        // 只在**登记表里读回来的值和刚写下去的不一致**时才把探针塞进回包 ——
+        // 健康的时候它一个字都不会出现（界面上不该有莫名其妙的一条红字）。
+        // 再看到 `track srv 发布失败：登记表没写对…` 就说明服务端这一侧还有问题，
+        // 而那行字会直接说明是表少了列、还是写进去被丢掉了。
+        $after  = Db::name($this->tableName())->where('id', $row['id'])->find();
+        $stored = is_array($after) && array_key_exists('tracks', $after)
+            ? (string)$after['tracks']
+            : '（没有这一列）';
+        $want = implode(',', $names);
+        if ($want !== $stored) {
+            $result['tracks'][] = [
+                'trackName'        => 'srv',
+                'mid'              => '',
+                'sessionId'        => '',
+                'status'           => '',
+                'errorCode'        => '登记表没写对：想写=[' . $want . '] 实际=[' . $stored . ']',
+                'errorDescription' => '服务端临时诊断标记（不是 Cloudflare 的错误）',
+            ];
+        }

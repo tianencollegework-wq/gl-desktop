@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  别把通知栏小图标当「没人用的资源」删掉。
+
+  原因：`ic_notification` 只被 Dart 侧的字符串引用
+  （`LocalMessageNotificationPresenter.icon` → 插件在运行时用
+  `resources.getIdentifier(name, "drawable", packageName)` 查），
+  而 release 构建的资源压缩只会看 Java/Kotlin/XML 里的引用，
+  看不到它 → 直接判成 `is not reachable` 并从 APK 里删掉
+  （真机上表现为通知弹不出来，日志写 `invalid_icon ... could not be found`）。
+
+  这个文件只在打包时被压缩器读，本身不会进 APK。
+-->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/ic_notification" />

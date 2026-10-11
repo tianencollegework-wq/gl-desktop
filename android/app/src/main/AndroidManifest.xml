@@ -1,0 +1,155 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- 网络：以前是靠依赖插件把这两条合并进来（release 包里确实有，但那是运气），
+         显式写一份，插件换版本也不会突然没网。 -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+
+    <!-- 按住说话录音（S4.4c）。老端靠 uni.getRecorderManager() 隐式申请，新端显式声明 -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <!-- 视频通话（S6.2）：flutter_webrtc 在 getUserMedia 时会自己弹权限框，
+         但它自带的 manifest 是空的——权限得由宿主 App 声明，不然申请不到。 -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <!-- 通话本身不是必须，但要让摄像头/麦克风在部分厂商 ROM 上不被后台策略掐掉 -->
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false"/>
+
+    <!-- 音频路由（S6.4）：切听筒/扬声器、申请音频焦点都要它。
+         以前这条是 flutter_webrtc 合并进来的，显式声明。 -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
+    <!-- 蓝牙耳机当作通话设备：API 30 以前是 BLUETOOTH，31 起要 BLUETOOTH_CONNECT
+         （只声明到 30 的那个老权限，避免新版系统上出现「不需要的权限」告警）。 -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
+
+    <!-- 通话中保活（S6.5）：屏幕熄灭/切到后台时别让 CPU 睡死、也别断网。 -->
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <!-- 通话期间的前台服务。Android 14 起「用麦克风的前台服务」还必须单独申请类型，
+         视频通话同理（服务本身在 S6.5 落地，权限先备好，不然到时候要重打包）。 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
+    <!-- 屏幕共享（S6.7）：投屏前台服务的类型位。Android 14 要求取 MediaProjection 之前
+         已经有带这个类型的前台服务在跑，否则 getMediaProjection() 会抛 SecurityException -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA"/>
+
+    <!-- 来电体验（S6.5/S6.6）：震动、通知栏来电、以及「App 在后台时全屏弹来电页」。
+         POST_NOTIFICATIONS 是 33 起发通知必须的运行时权限。 -->
+    <uses-permission android:name="android.permission.VIBRATE"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- 「去了了解电池优化」那条提示条（S8.0b）要发 ACTION_REQUEST_IGNORE_BATTERY_
+         OPTIMIZATIONS 的 intent。**没有这条声明，系统会静默忽略那个 intent**：
+         不报错、不弹框、什么都没发生（真机上就表现为「点了没反应」）。
+         只用于拉起系统那个确认框，不涉及读取任何数据。 -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+    <!-- 「保存到相册」（S4.6）：gal 那个库在 API ≤ 29 上要写外部存储，而它自己的
+         manifest 是**空的**（权限得宿主声明）—— 没有这条时，安卓 9 及以下
+         「保存图片/视频」是**静默失败**（不报错、相册里就是没有）。
+         30 起改走 MediaStore，不需要权限，所以用 maxSdkVersion 圈住。 -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29"/>
+
+    <!-- 整包更新（S7.2）：下载完 APK 要交给系统安装器。
+         注意：这个权限只让系统**弹出安装界面**，用户还得同意一次；
+         上架 Google Play 的话要额外声明用途（老端也声明了它）。 -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
+    <!-- 灵听（音乐）的通知栏播放控制：audio_service 的媒体通知挂在
+         mediaPlayback 类型的前台服务上。Android 14 起每种前台服务类型都要
+         单独申请对应权限，没有这条，通知一起就被系统打回。
+         与通话那个 mic/camera 服务是两回事，互不影响。 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
+    <!-- requestLegacyExternalStorage（API 29 专用）：安卓 10 上要往系统相册里写文件，
+         得开着这个开关（gal 的文档里点名的两条之一）；30 起系统忽略它。 -->
+    <application
+        android:label="@string/app_name"
+        android:name="${applicationName}"
+        android:requestLegacyExternalStorage="true"
+        android:icon="@mipmap/ic_launcher">
+        <!-- screenOrientation="portrait"：锁死竖屏（用户 2026-09-27 的要求）。
+             这是系统那一侧的硬锁 —— 系统压根不会把 Activity 转成横的；
+             Dart 侧还有一道 `SystemChrome.setPreferredOrientations`（见 main.dart），
+             两道的分工：这里管安卓、那里管 iOS 与 Flutter 自己的方向偏好。
+             注意与 `supportsPictureInPicture` 不冲突：通话小窗那套是系统窗口，
+             不受 Activity 方向限制（真机上已验证）。 -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:screenOrientation="portrait"
+            android:supportsPictureInPicture="true"
+            android:taskAffinity=""
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <!-- Specifies an Android theme to apply to this Activity as soon as
+                 the Android process has started. This theme is visible to the user
+                 while the Flutter UI initializes. After that, this theme continues
+                 to determine the Window background behind the Flutter UI. -->
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"
+              />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        <!-- 通话期间的前台服务（S6.5）：切后台/息屏时别让系统把进程冻住。
+             foregroundServiceType 要与真实用途一致：语音 = microphone，视频再加 camera；
+             stopWithTask = 用户从最近任务里划掉 App 时一起停（那时通话已经没了，
+             留着一个「麦克风正在使用」的通知比停掉更糟）。见 CallForegroundService.kt -->
+        <service
+            android:name=".CallForegroundService"
+            android:exported="false"
+            android:stopWithTask="true"
+            android:foregroundServiceType="microphone|camera|mediaProjection" />
+        <!-- 灵听（音乐）的媒体通知/锁屏/耳机键：audio_service 的前台服务与
+             媒体按键接收器。
+
+             * 通知栏上那个「封面 + 歌名 + 播放控制」就是它在显示，切后台/息屏
+               继续播也靠它（前台服务）；
+             * `mediaPlayback` 类型必须与上面那条权限配套；
+             * MediaBrowserService 的 intent-filter 是系统识别「这是个媒体应用」
+               的入口（锁屏、车机、手表都从这里找）；
+             * tools:ignore="Instantiatable" 是压掉 lint 的误报（这两个类在依赖包里，
+               不在本模块的源码里）。
+             只用在这一个频道上，通话那套完全独立（见 CallForegroundService）。 -->
+        <service
+            android:name="com.ryanheise.audioservice.AudioService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback"
+            tools:ignore="Instantiatable">
+            <intent-filter>
+                <action android:name="android.media.browse.MediaBrowserService" />
+            </intent-filter>
+        </service>
+        <!-- 耳机线控 / 蓝牙耳机上的播放暂停键（不声明的话按键会落到别的应用） -->
+        <receiver
+            android:name="com.ryanheise.audioservice.MediaButtonReceiver"
+            android:exported="true"
+            tools:ignore="Instantiatable">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
+        <!-- Don't delete the meta-data below.
+             This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+    </application>
+    <!-- Required to query activities that can process text, see:
+         https://developer.android.com/training/package-visibility and
+         https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.
+
+         In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT"/>
+            <data android:mimeType="text/plain"/>
+        </intent>
+    </queries>
+</manifest>

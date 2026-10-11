@@ -1,0 +1,32 @@
+name: webview_flutter_windows
+description: >-
+  Vendored copy of webview_flutter_windows 1.3.0 with a local teardown patch
+  (see windows/webview_bridge.cc and windows/webview_windows_plugin.cc).
+version: 1.3.0
+repository: https://github.com/omar-hanafy/webview_flutter_windows
+issue_tracker: https://github.com/omar-hanafy/webview_flutter_windows/issues
+topics:
+  - webview
+  - webview2
+  - windows
+  - desktop
+  - browser
+
+environment:
+  sdk: ^3.12.0
+  flutter: ">=3.44.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      windows:
+        pluginClass: WebviewWindowsPlugin

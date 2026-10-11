@@ -1,0 +1,101 @@
+---
+/**
+ * 两种语言的每个页面都走这里。
+ *
+ * head 里那几件事是「双语 + 自动识别」方案的一半（plan §2.4）：
+ * `<html lang>` 用真实语言、canonical 自指（**不要**把中文页 canonical 到英文页）、
+ * hreflang 一组三条（zh-Hans / en / x-default，x-default 指英文页）。
+ */
+import '../styles/global.css';
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+import DownloadGuard from '../components/DownloadGuard.astro';
+import { absoluteUrl, alternates, htmlLang, type Slug } from '../i18n/utils';
+import type { Lang } from '../consts';
+
+interface Props {
+  lang: Lang;
+  slug: Slug;
+  title: string;
+  description: string;
+}
+const { lang, slug, title, description } = Astro.props;
+const canonical = absoluteUrl(lang, slug);
+const alts = alternates(slug);
+const ogLocale = lang === 'zh' ? 'zh_CN' : 'en_US';
+const ogLocaleAlt = lang === 'zh' ? 'en_US' : 'zh_CN';
+---
+
+<!doctype html>
+<html lang={htmlLang(lang)}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content={Astro.generator} />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+
+    {
+      alts.map((alt) => (
+        <link rel="alternate" hreflang={alt.hreflang} href={alt.href} />
+      ))
+    }
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Gracelink" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:locale" content={ogLocale} />
+    <meta property="og:locale:alternate" content={ogLocaleAlt} />
+    <meta name="twitter:card" content="summary" />
+
+    <!-- 图标直接用 App 自己那套（`web/icons/`，5 KB / 8 KB），不另画 -->
+    <link rel="icon" href="/logo-192.png" type="image/png" sizes="192x192" />
+    <link rel="apple-touch-icon" href="/logo-512.png" />
+  </head>
+  <body class="flex min-h-dvh flex-col">
+    <Header lang={lang} slug={slug} />
+    <main class="flex-1">
+      <slot />
+    </main>
+    <Footer lang={lang} />
+
+    <!--
+      应用内浏览器（微信 / QQ / 微博 / 钉钉… 的 WebView）里的下载守卫：随每个页面带
+      一份（内联，不产生外部 JS 文件），只有点在下载链接上、且 UA 看起来是应用内
+      浏览器时才会起作用 —— 正常浏览器里点下载仍然是一次点击直达。
+      见 `DownloadGuard.astro`。
+    -->
+    <DownloadGuard lang={lang} />
+
+    <!--
+      手动切语言时把选择记进 cookie（与根页协商、边缘函数共用 `gl_lang`）。
+      不写这一步的话：用户手选了英文 → 下次访问根路径又按浏览器语言被顶回中文，
+      也就是「我明明选了英文怎么又变中文了」（plan §2.3 第二条）。
+      内联的几行，不引入任何外部脚本。
+    -->
+    <script is:inline>
+      (function () {
+        var COOKIE = 'gl_lang';
+        var MAX_AGE = 31536000;
+        document.addEventListener('click', function (event) {
+          var link = event.target && event.target.closest
+            ? event.target.closest('a[data-lang-switch]')
+            : null;
+          if (!link) return;
+          var lang = link.getAttribute('data-lang-switch');
+          if (lang !== 'zh' && lang !== 'en') return;
+          try {
+            document.cookie =
+              COOKIE + '=' + lang + '; path=/; max-age=' + MAX_AGE + '; samesite=lax';
+          } catch (e) {
+            /* cookie 被禁用也不该拦住跳转 */
+          }
+          // 不 preventDefault：正常导航，浏览器会把刚写的 cookie 带上
+        });
+      })();
+    </script>
+  </body>
+</html>

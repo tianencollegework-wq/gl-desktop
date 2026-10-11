@@ -1,0 +1,69 @@
+---
+/**
+ * 顶栏。粘顶、奶油底半透明 + 毛玻璃，底边一条线。
+ *
+ * 移动端不做汉堡菜单：本页导航只有三项（功能/下载/支持），
+ * 少一个需要 JS 才能打开的面板，首屏就少一次交互。
+ *
+ * 「支持」在 2026-10-10 从「跳到页脚的 #support 锚点」改成**直接进常见问题页** ——
+ * FAQ 落地之后，让用户点两下才能看到答案没有意义；页脚的 #support 锚点仍保留。
+ */
+import BrandMark from './BrandMark.astro';
+import LangSwitcher from './LangSwitcher.astro';
+import { ui } from '../i18n/ui';
+import { pagePath, type Slug } from '../i18n/utils';
+import type { Lang } from '../consts';
+
+interface Props {
+  lang: Lang;
+  slug: Slug;
+}
+const { lang, slug } = Astro.props;
+const t = ui[lang];
+const home = pagePath(lang, '');
+const download = pagePath(lang, 'download');
+const faq = pagePath(lang, 'faq');
+---
+
+<header
+  class="sticky top-0 z-50 border-b border-line/70 bg-cream/85 backdrop-blur-md"
+>
+  <div class="mx-auto flex h-16 max-w-6xl items-center gap-3 px-4 sm:gap-4 sm:px-5">
+    <a href={home} class="flex shrink-0 items-center" aria-label="Gracelink">
+      <BrandMark lang={lang} size={30} />
+    </a>
+
+    <nav class="ml-2 hidden items-center gap-1 text-[0.95rem] font-medium whitespace-nowrap sm:flex">
+      <a
+        href={`${home}#features`}
+        class="rounded-full px-3 py-2 text-ink-soft transition-colors hover:bg-cream-deep hover:text-ink"
+        >{t.nav.features}</a
+      >
+      <a
+        href={download}
+        class="rounded-full px-3 py-2 text-ink-soft transition-colors hover:bg-cream-deep hover:text-ink"
+        >{t.nav.download}</a
+      >
+      <a
+        href={faq}
+        class="rounded-full px-3 py-2 text-ink-soft transition-colors hover:bg-cream-deep hover:text-ink"
+        >{t.nav.support}</a
+      >
+    </nav>
+
+    <div class="ml-auto flex shrink-0 items-center gap-3 sm:gap-5">
+      <LangSwitcher lang={lang} slug={slug} />
+      <!--
+        移动端用短文案（「下载」），`sm` 以上才用完整的「下载客户端」。
+        宽度不够时按钮里换行会直接把顶栏撞高（390 下实测），所以两段都是 nowrap。
+      -->
+      <a
+        href={download}
+        class="rounded-full bg-brand px-4 py-2 text-sm font-semibold whitespace-nowrap text-white shadow-sm transition-colors hover:bg-brand-dark sm:px-5 sm:text-[0.95rem]"
+      >
+        <span class="sm:hidden">{t.nav.download}</span>
+        <span class="hidden sm:inline">{t.hero.ctaPrimary}</span>
+      </a>
+    </div>
+  </div>
+</header>

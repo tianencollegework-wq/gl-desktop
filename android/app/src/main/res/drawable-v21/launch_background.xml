@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 启动窗口：Android 11 及以下**真正被看到的那一屏**（API 24+ 都走 drawable-v21 这一份；
+     12+ 系统另画强制启动屏，见 values-v31/styles.xml）。
+
+     为什么不是模板默认的 ?android:colorBackground：它跟随系统深浅色，而本 App 只有
+     亮色主题（lib/app.dart 只给了 theme，没有 darkTheme），深色系统下会先黑一屏再闪白。
+     这里锁死纯白。
+
+     图为什么不抠底：assets/images/logo.png 是白底不透明方图，白色底和这里的白背景
+     融成一片，所以直接居中贴原图就行，不需要透明素材。
+     资源生成：tool/probe/make_launch_logo.js -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@android:color/white" />
+
+    <item>
+        <bitmap
+            android:gravity="center"
+            android:src="@mipmap/launch_logo" />
+    </item>
+</layer-list>

@@ -1,0 +1,48 @@
+---
+/**
+ * 语言切换器：**两个并排的文字链接**（中文 / EN），不是下拉。
+ *
+ * 为什么不用下拉：微信官网就是两个文字链接（`WeChat (繁体) │ WeChat (EN)`），
+ * 一眼知道有几种语言、也不用先展开；WhatsApp 那种 60 项的下拉对我们只有两种
+ * 语言来说是纯负担。
+ *
+ * 切换时**直接指向另一种语言的同一个页面**（`/zh/download/` ↔ `/en/download/`），
+ * 并顺手写 cookie —— 之后访问根路径时优先听用户的，不再被浏览器语言顶回去。
+ */
+import { LANG_LABEL, LOCALES, type Lang } from '../consts';
+import { pagePath, type Slug } from '../i18n/utils';
+
+interface Props {
+  lang: Lang;
+  slug: Slug;
+}
+const { lang, slug } = Astro.props;
+const label = LANG_LABEL;
+---
+
+<nav aria-label="Language" class="flex shrink-0 items-center gap-1 text-sm whitespace-nowrap">
+  {
+    LOCALES.map((code, index) => {
+      const isCurrent = code === lang;
+      return (
+        <>
+          {index > 0 && <span class="text-line" aria-hidden="true">|</span>}
+          {isCurrent ? (
+            <span aria-current="true" class="px-1.5 font-bold text-ink">
+              {label[code]}
+            </span>
+          ) : (
+            <a
+              href={pagePath(code, slug)}
+              data-lang-switch={code}
+              hreflang={code}
+              class="px-1.5 text-muted transition-colors hover:text-brand-deep"
+            >
+              {label[code]}
+            </a>
+          )}
+        </>
+      );
+    })
+  }
+</nav>

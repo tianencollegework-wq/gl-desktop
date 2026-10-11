@@ -1,0 +1,22 @@
+{
+  "android": {
+    "version": "1.0.0",
+    "code": 261008,
+    "url": "https://github.com/davidliuus666/gracelinkim-release/releases/download/1.0.0/Gracelink.Android.-1.0.0.apk"
+  },
+  "ios": {
+    "version": "1.0.0",
+    "code": 261008,
+    "url": "https://example.com/download/gracelink-1.0.0.ipa"
+  },
+  "windows": {
+    "version": "1.0.0",
+    "code": 261008,
+    "url": "https://github.com/davidliuus666/gracelinkim-release/releases/download/1.0.0/Gracelink.Win.-Setup-1.0.0.exe"
+  },
+  "macos": {
+    "version": "1.0.0",
+    "code": 261008,
+    "url": "https://example.com/download/Gracelink-1.0.0.dmg"
+  }
+}

@@ -1,0 +1,76 @@
+---
+/**
+ * 下载页正文。链接来自 App 那份 `update.json`（构建期读，见 `src/data/downloads.ts`），
+ * 但**页面上不出现版本号、内部号、校验和、安装提示** —— 那些是发版日志的内容。
+ */
+import BaseLayout from '../layouts/BaseLayout.astro';
+import DownloadCard from './DownloadCard.astro';
+import { ui } from '../i18n/ui';
+import { getDownloads, PLATFORMS } from '../data/downloads';
+import type { Lang } from '../consts';
+
+interface Props {
+  lang: Lang;
+}
+const { lang } = Astro.props;
+const t = ui[lang];
+const tDownload = t.download;
+
+const { platforms, warnings } = await getDownloads();
+warnings.forEach((line) => console.warn(line));
+
+const anyAvailable = PLATFORMS.some((key) => platforms[key].available);
+const platformLabels: Record<string, string> = {
+  windows: t.platforms.windows,
+  android: t.platforms.android,
+  ios: t.platforms.ios,
+  macos: t.platforms.macos,
+};
+---
+
+<BaseLayout
+  lang={lang}
+  slug="download"
+  title={`${tDownload.cardTitle} · ${t.wordmark}`}
+  description={tDownload.cardLede}
+>
+  <section class="mx-auto max-w-5xl px-5 py-14 md:py-16">
+    <h1 class="text-[2.2rem] leading-tight font-extrabold text-ink sm:text-5xl">
+      {tDownload.cardTitle}
+    </h1>
+    <p class="mt-4 max-w-2xl text-[1.05rem] leading-8 text-ink-soft">{tDownload.cardLede}</p>
+
+    {
+      !anyAvailable && (
+        <p class="mt-8 rounded-2xl border border-brand/20 bg-brand-wash/70 px-5 py-4 text-[0.95rem] text-brand-deep">
+          {tDownload.allPending}
+        </p>
+      )
+    }
+
+    <div class="mt-10 grid gap-5 sm:grid-cols-2">
+      {
+        PLATFORMS.map((key) => (
+          <DownloadCard lang={lang} entry={platforms[key]} label={platformLabels[key]} />
+        ))
+      }
+    </div>
+
+    <!-- 从这里开始 -->
+    <div class="mt-14 rounded-2xl border border-line bg-white p-7">
+      <h2 class="text-xl font-bold text-ink">{tDownload.stepsTitle}</h2>
+      <ol class="mt-5 space-y-3">
+        {
+          tDownload.steps.map((step, index) => (
+            <li class="flex gap-3 text-[0.98rem] leading-7 text-ink-soft">
+              <span class="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-brand/12 text-[0.75rem] font-bold text-brand-deep">
+                {index + 1}
+              </span>
+              <span>{step}</span>
+            </li>
+          ))
+        }
+      </ol>
+    </div>
+  </section>
+</BaseLayout>

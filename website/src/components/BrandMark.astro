@@ -1,0 +1,54 @@
+---
+/**
+ * 品牌标：**软件自己的 logo** —— 源文件是 `assets/images/logo.png`
+ * （App 里 `AppInfo.logoAsset`，登录页与启动页显示的就是它），
+ * 由 `scripts/make-logo.mjs` 缩成 web 尺寸（96 / 192 / 512），顶栏用 96 那张。
+ *
+ * ⚠️ **不要用 `web/icons/Icon-192.png`**：那是 `flutter create` 生成的**默认图**
+ * （文件时间 2026-06-19，和 iOS 的 AppIcon 同一套像素），内容是 Flutter 自己的
+ * 青色 logo，不是我们的 —— 用户 2026-10-10 指出过一次。`make-logo.mjs` 结尾
+ * 会拿像素差把这件事钉住（相差太小就报警）。
+ *
+ * 源图是**白底不透明**的，所以这里当“应用图标磁贴”展示：CSS 给圆角 +
+ * 一圈极淡的描边（白色贴到奶油底上需要一条边才看得出边界）。
+ * 后面跟字标，字标按语言走 —— 中文「恩信」、英文 Gracelink，
+ * 与 App 底部第一个 tab 一致（`shell_tabs.dart`：取 `user.appName`）。
+ */
+import { PRODUCT_NAME, type Lang } from '../consts';
+import { ui } from '../i18n/ui';
+
+interface Props {
+  lang: Lang;
+  /** 图形边长（px） */
+  size?: number;
+  /** 是否连同字标一起显示 */
+  withWordmark?: boolean;
+  class?: string;
+}
+const { lang, size = 32, withWordmark = true, class: className = '' } = Astro.props;
+const wordmark = ui[lang].wordmark;
+---
+
+<span class={`inline-flex items-center gap-2.5 ${className}`}>
+  <img
+    src="/logo-96.png"
+    width={size}
+    height={size}
+    alt={PRODUCT_NAME}
+    class="shrink-0 rounded-[0.3em] ring-1 ring-black/5"
+    style={`width:${size}px;height:${size}px`}
+    loading="eager"
+    decoding="async"
+  />
+  {
+    withWordmark && (
+      // 320 宽度下顶栏装不下「图标 + 字标 + 语言切换 + 按钮」，
+      // 所以 380px 以下只留图标。
+      <span
+        class="hidden text-[1.3rem] font-extrabold tracking-tight text-ink min-[380px]:inline"
+      >
+        {wordmark}
+      </span>
+    )
+  }
+</span>
