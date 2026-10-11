@@ -218,8 +218,8 @@ void main() {
   testWidgets('桌面外链页：说明 + 地址 + 「在浏览器中打开」，进度直接报 100', (tester) async {
     var progress = -1;
     // 分流按**平台**走（不是按那个开关）：Windows 上给真 webview（WebView2），
-    // 别的桌面才是降级页。用例宿主就是 Windows，所以这一条同时钉着
-    // 「Windows 不再走浏览器」。
+    // macOS 上给系统那支（WKWebView），Linux 才是降级页。用例宿主就是 Windows，
+    // 所以这一条同时钉着「Windows 不再走浏览器」。
     final desktop = ProviderContainer(
       overrides: [desktopFeaturesProvider.overrideWithValue(true)],
     );
@@ -230,6 +230,9 @@ void main() {
       desktop.read(webViewHostProvider),
       Platform.isWindows
           ? isA<WindowsWebViewHost>()
+          // macOS 走系统那一支（WKWebView，2026-10-11 起）；只有 Linux 落回退页
+          : Platform.isMacOS
+          ? isA<SystemWebViewHost>()
           : isA<DesktopWebViewHost>(),
     );
     expect(

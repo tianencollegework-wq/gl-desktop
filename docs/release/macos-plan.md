@@ -110,8 +110,10 @@ macOS 用系统红绿灯 + 默认菜单栏即可（`macos/Runner/Base.lproj/Main
 
 * `lib/data/media/window_state_probe_io.dart`：用 `user32.dll` 的 `IsIconic` 判「通话对方窗口是不是最小化了」。
   macOS 上现在返回 null（功能静默降级：不盯最小化）。要真做，走 `NSRunningApplication` / `CGWindowListCopyWindowInfo`；
-* `lib/core/platform/webview_host.dart`：现在 `Platform.isWindows → WindowsWebViewHost`，其余桌面 → **降级页**。
-  macOS 上应该新加 `MacWebViewHost`（WKWebView 现成），降级页就只剩 Linux 了。
+* `lib/core/platform/webview_host.dart`：~~现在 `Platform.isWindows → WindowsWebViewHost`，
+  其余桌面 → 降级页~~ —— **2026-10-11 已做**：`Platform.isMacOS → SystemWebViewHost`，
+  也就是 `webview_flutter` 的 WKWebView（与手机同一套 Dart API，**不必另写一份
+  `MacWebViewHost`**）。降级页就只剩 Linux 了。
 
 ---
 
@@ -139,6 +141,7 @@ macOS 用系统红绿灯 + 默认菜单栏即可（`macos/Runner/Base.lproj/Main
 | 身份 | bundle id 换成 `cc.gracelink.im`（`AppInfo.xcconfig` 与 `project.pbxproj` 里 RunnerTests 那三处），Copyright 换成 Gracelink | 用例与安卓 `applicationId` 交叉断言 |
 | 图标 | 七张换成本家的标，生成脚本 `tool/icons/make_macos_icons.js`（可重跑） | 用例按像素判据守着（圆角 / 品牌蓝 / 白形 / 四角透明） |
 | 最小窗口 | `MainFlutterWindow.swift` 里 `contentMinSize` = 900×600 | `desktop_window_min_size_test.dart` 新增一条 |
+| 网页窗 | macOS 走**系统那一支**（`webview_flutter` 的 WKWebView，与手机同一套 API）：原来那段注释写「只到安卓/iOS」是错的 | `desktop_windows_test.dart` 里的平台分流断言（⚠️ macOS 那一支要到真机上才跑得到） |
 
 改到一半才发现的两件事（都记在图标脚本头部）：
 

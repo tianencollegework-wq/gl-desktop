@@ -316,12 +316,25 @@ class _DesktopWebViewState extends ConsumerState<_DesktopWebView> {
 /// 「WebViewPlatform.instance is not set」（2026-10-04 加网页窗时踩过：窗口里
 /// 不换这一份，网页窗自己先把自已弄崩）。
 ///
+/// 四种归宿：
+/// * **Windows**：WebView2（本仓那份 `webview_flutter_windows` 分支，见上）；
+/// * **macOS**：系统那一支 —— `webview_flutter` 的 WKWebView（那个包自己声明了
+///   `macos`，与手机同一套 Dart API，所以这边不用另写实现）。2026-10-11 加；
+///   原先这段注释写的是「只到安卓/iOS」，那是错的；
+/// * **Linux**：平台那支没有实现 → [DesktopWebViewHost] 那张回退页
+///   （地址 + 「在浏览器中打开」）；
+/// * **手机**：系统那一支。
+///
+/// ⚠️ 这里的 macOS 分支**在 Windows 开发机上跑不到**（用例只跑宿主平台那一支），
+/// 真机验收时顺手点一次网页窗。
+///
 /// 用例里那个 webview 是替身，不该被宿主平台换掉 —— 那些用例都显式
 /// override 了 [webViewHostProvider]（见 `test/features/chat_link_test.dart`）。
 WebViewHost webViewHostForPlatform() {
   if (Platform.isWindows) return const WindowsWebViewHost();
-  // macOS / Linux：没有能用的 webview 实现（`webview_flutter` 只到安卓/iOS/
-  // macOS 的 WKWebView）→ 回退页
+  // macOS：WKWebView（系统那一支现成的，与手机同一套实现）
+  if (Platform.isMacOS) return const SystemWebViewHost();
+  // Linux：平台那支没有 Linux 实现 → 回退页
   if (isDesktopRuntime) return const DesktopWebViewHost();
   return const SystemWebViewHost();
 }
