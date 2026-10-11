@@ -15,14 +15,22 @@ on:
     tags: ['v*'] # 打了 v* 的 tag 自动出包
   # 平时 push 不跑：一次 macOS 构建要 5–12 分钟，没必要每次提交都等它
 
+# 同一个 ref 上只留最新一次：上面那个 timeout 是给「卡住」兜底的，
+# 而真卡住时最烦的不是它白跑，是它占着队列位、后面那次干等（免费 ≠ 不心疼时间）。
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-macos:
     # ⚠️ **钉版本，别用 `macos-latest`**：macos-13 已退役、macos-14 公告 2026-11-02 起
-    # 不再支持；而 macos-15 上「**跑**」Flutter 集成测试有「前台化失败后挂住」的报告
-    # （只是编译不受影响）。将来要在这条流水线里加集成测试那一步时：给它单独加
-    # `timeout-minutes`，或把这一 job 换成 macos-14。
+    # 不再支持。这一 job 只编译+打包（不受 macos-15 那个「跑集成测试前台化失败后挂住」
+    # 的问题影响）；真要跑起来的那个自检在下面 smoke-launch 那个 job 里，
+    # 它自己带了短得多的超时 —— 别把两条链揉成一个 job，一条挂住会连累出包。
     runs-on: macos-15
-    timeout-minutes: 40
+    # 实测 8m55s（2026-10-11，冷缓存）；25 分钟留了约三倍余量。
+    # 原来写 40 是没数据时的保守值 —— 真卡住时那 40 分钟就是白占队列。
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -75,3 +83,39 @@ jobs:
           name: Gracelink-macos-dmg
           path: Gracelink-*.dmg
           if-no-files-found: error
+
+  # 「编得过」不等于「跑得起来」—— 这一 job 就补中间那一格：
+  # 把 App 真的启动起来，看它能不能走到登录页（用例见 integration_test/boot_smoke_test.dart）。
+  # 它跟上面那个 job 并行、互不牵连：出包不受自检影响，自检红也不会拖住包。
+  smoke-launch:
+    runs-on: macos-15
+    # 用例自己判 3 分钟死，这里再套一层 12 分钟的壳：
+    # 万一是「App 起来了但前台化失败」那种挂住，至少有上限、不白占队列。
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.2'
+          channel: stable
+          cache: true
+
+      - name: 取依赖
+        run: flutter pub get
+
+      - name: 真启动一次（跑到登录页就算过）
+        # tee 是为了留现场：失败时应用自己那串 debugPrint（启动日志、缺失的通道、
+        # 沙箱拒绝的那些）全在里面，只靠 CI 的摘要是看不出的。
+        # `set -o pipefail`：不加的话 tee 成功就整体算成功，测试红了也当绿的。
+        run: |
+          set -o pipefail
+          flutter test integration_test/boot_smoke_test.dart -d macos 2>&1 | tee smoke-launch.log
+
+      - name: 启动日志（失败时唯一的现场）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-smoke-log
+          path: smoke-launch.log
+          if-no-files-found: warn
