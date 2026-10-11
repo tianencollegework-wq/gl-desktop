@@ -80,6 +80,41 @@
 
 **插件层结论：一个都不缺**（唯一缺的那个恰好是要换语义的）。这是 macOS 可行性里最好的一条消息。
 
+上面那张表可以用脚本重新生成（2026-10-11 加，读 `pubspec.lock` + pub 缓存，只读）：
+
+```
+node tool/audit/macos_support.js
+→ 共 33 个带原生代码的依赖：1 个真缺口、8 个分平台实现（正常）。
+  真缺口（在 macOS 上这个功能没有实现）：open_filex
+```
+
+⚠️ 脚本踩过的坑，以后改它别重踩：有的包（`open_filex` / `record`）的 pubspec 是 **CRLF** 发的，
+不先把行尾归一化，`lines.indexOf('flutter:')` 永远找不到 → 整包**静默漏掉**。
+清单看着齐全、其实少几行，比报错危险得多。
+
+#### 那 Mac 上到底会少哪几样？（2026-10-11 读 Dart 侧得出，不是猜）
+
+Dart 侧对我们自己那四条通道（`child_window` / `tray` / `media_session` / `app_info`）
+**都做了失败降级**，所以「Swift 没写」在这台机器上的表现是**少功能，不是崩**：
+
+| 少的 | Dart 侧降级在哪 | 表现 |
+|---|---|---|
+| 托盘图标 + 「关窗缩到托盘」 | `tray_native.dart` 整段 `on Object catch` | 没有托盘；窗口关了就是关了 |
+| 子窗的标题/尺寸/居中/小窗/拖窗 | `desktop_window_native.dart` 的 `_guard` | 窗口还能开（`desktop_multi_window` 自己有 macOS 实现），但是插件默认样子 |
+| 系统「正在播放」卡片 | `system_media_session.dart` 的 `_guard` | 放歌不受影响，只是系统里没那张卡片 |
+| 精确版本号 | `app_version.dart` 的 catch → 常量兜底 | 界面上照样有版本号（值恰好与 `pubspec` 一致，看不出来） |
+| 通话小窗（PIP） | `setPip` 返回 false | 界面自己切回正常版式（设计如此） |
+
+另外两条当下就确认了、不用等真机：
+
+* **推送 / 本地通知 / Firebase 在桌面路径上压根不走** —— `push_background.dart` 里
+  `if (!(Platform.isAndroid \|\| Platform.isIOS)) return;`，`push_token.dart` 桌面用
+  `NoopPushTokenSource`，`message_notification_presenter.dart` 的 `initialize()` 也硬闸在手机两端。
+  所以「macOS 缺 `GoogleService-Info.plist`」这件事**不是问题**（跑不到那一步）；
+* **「检查更新」在桌面走浏览器** —— `app_update_flow.dart` 里 `if (!isAndroid) { openUrl(info.url); return; }`，
+  桌面（含 macOS）从不调 `installPackage`。所以上面那个 `open_filex` 缺口**不影响更新流程**，
+  代价是用户要自己下 .dmg、自己过 Gatekeeper 那三步（第七节）。
+
 ---
 
 ## 五、要重写的原生层（真正的工作量）
