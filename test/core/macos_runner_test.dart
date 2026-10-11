@@ -143,6 +143,35 @@ void main() {
     });
   });
 
+  group('部署目标（能装的最低 macOS 版本）', () {
+    // 2026-10-11 第一次 CI 构建就死在这条上，原文：
+    //   error: The package product 'gal' requires minimum platform version 11.0
+    //          for the macOS platform, but this target supports 10.15
+    // Flutter 模板给的是 10.15，而 `gal`（存图到相簿那个包）要 11.0。
+    // 这类错**本地永远看不见**（本机是 Windows，编不了 macOS），
+    // 所以把下限钉在这里，改错了至少本地能拦住。
+    test('三个配置是同一个下限，且不低于 11.0', () {
+      final pbxproj = read('macos/Runner.xcodeproj/project.pbxproj');
+      final targets = RegExp(r'MACOSX_DEPLOYMENT_TARGET = ([\d.]+);')
+          .allMatches(pbxproj)
+          .map((match) => match.group(1)!)
+          .toList();
+      expect(targets, isNotEmpty, reason: 'project.pbxproj 里找不到部署目标');
+      expect(
+        targets.toSet(),
+        hasLength(1),
+        reason:
+            'Debug / Release / Profile 三份必须一致（实测是 $targets）：'
+            '只改一份会造出「调试好好的、发出去起不来」，而这里看不见',
+      );
+      expect(
+        double.parse(targets.first),
+        greaterThanOrEqualTo(11.0),
+        reason: 'gal 要求 macOS 11.0；写回 10.15 会在 xcodebuild 那一步直接失败',
+      );
+    });
+  });
+
   group('AppIcon：必须是自家的标，不是 Flutter 默认那张', () {
     const dir = 'macos/Runner/Assets.xcassets/AppIcon.appiconset';
     const sizes = <int>[16, 32, 64, 128, 256, 512, 1024];
