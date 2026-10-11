@@ -115,6 +115,41 @@ macOS 用系统红绿灯 + 默认菜单栏即可（`macos/Runner/Base.lproj/Main
   也就是 `webview_flutter` 的 WKWebView（与手机同一套 Dart API，**不必另写一份
   `MacWebViewHost`**）。降级页就只剩 Linux 了。
 
+### A 块的入口已经查清（2026-10-11 读 `desktop_multi_window` 源码得到）
+
+写 Swift 之前卡着的那个问题 ——「子窗那颗引擎上怎么注册我们自己的通道」—— 有答案了，
+而且不用另打包一个 Flutter 插件：
+
+* 宿主要在 `macos/Runner/MainFlutterWindow.swift` 的 `awakeFromNib()` 里装上插件给的钩子
+  （这是插件**示例**里的写法，本仓还没装）：
+
+  ```swift
+  import desktop_multi_window   // Swift 包名与插件同名
+
+  FlutterMultiWindowPlugin.setOnWindowCreatedCallback { controller in
+    RegisterGeneratedPlugins(registry: controller)                    // 插件注册（本来就要有）
+    ChildWindowChannel.register(controller.engine.binaryMessenger)    // 我们自己的通道
+  }
+  ```
+
+  `controller` 就是那扇子窗的 `FlutterViewController`：`binaryMessenger` 上挂
+  `gracelinkim/child_window` 即可 —— **每扇窗一颗引擎、各注册一次**，与 Windows 那边
+  `RegisterPlugins(registrar)` 被逐窗口调用是一回事。主窗那颗在 `awakeFromNib` 里注册。
+* **一个在真机上表现为「点了没反应」的坑**：Dart 开子窗时用的是
+  `WindowConfiguration(hiddenAtLaunch: true)`（`desktop_window_service.dart`），
+  故意建一扇**先不显示**的窗，等子窗自己 `setTitle/setSize/center/show` 摆好了再显形
+  （`child_window_app.dart` 第 195–200 行）。所以在 macOS 的 `show` 落地之前，
+  文章 / 灵听 / 媒体号 / 网页窗**会一直不显形** —— 日志里写着「开了 xx 窗口」，屏幕上什么都没有。
+  *应急办法*（纯 Dart、不用写 Swift）：子窗里那条通道失败时改用插件自己的
+  `WindowController.fromWindowId(id).show()`（`FlutterWindow.swift` 里就是
+  `makeKeyAndOrderFront`）—— 代价是标题 / 尺寸还是拿不到，先能看见再说。
+* 插件 macOS 那半已经实现了 `window_show` / `window_hide` 与 `setIsVisible(!hiddenAtLaunch)`，
+  所以「叫回已经开着的那扇窗」（`_findAlive` 里那句 `window.show()`）在 macOS 上是通的；
+  **缺的只是我们那条自定义通道**。
+* `setPip`（无边框 + 置顶 + 挪到右下角）与 `dragBegin/Update/End` 是**通话窗**才用的：
+  Dart 拿到 `setPip → false` 会把版式切回去，`drag` 失败只记一行日志 —— 所以这两个
+  可以先不做，等通话真的上 Mac 再补，界面不会崩。
+
 ---
 
 ## 六、系统集成与小坑（都是「一次没做对就卡一整天」的那种）
@@ -142,6 +177,9 @@ macOS 用系统红绿灯 + 默认菜单栏即可（`macos/Runner/Base.lproj/Main
 | 图标 | 七张换成本家的标，生成脚本 `tool/icons/make_macos_icons.js`（可重跑） | 用例按像素判据守着（圆角 / 品牌蓝 / 白形 / 四角透明） |
 | 最小窗口 | `MainFlutterWindow.swift` 里 `contentMinSize` = 900×600 | `desktop_window_min_size_test.dart` 新增一条 |
 | 网页窗 | macOS 走**系统那一支**（`webview_flutter` 的 WKWebView，与手机同一套 API）：原来那段注释写「只到安卓/iOS」是错的 | `desktop_windows_test.dart` 里的平台分流断言（⚠️ macOS 那一支要到真机上才跑得到） |
+
+（下面第五节末尾那份「A 块入口」就是接着要做的那一大块：`gracelinkim/child_window`、
+`tray`、`app_info` 三个 Swift 文件 + 主窗 / 子窗的注册。）
 
 改到一半才发现的两件事（都记在图标脚本头部）：
 
