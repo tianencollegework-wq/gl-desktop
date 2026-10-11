@@ -289,6 +289,46 @@ codesign 签 .app 与 .dmg → notarytool 提交公证 → stapler staple
 钉了 `macos-15` 与 `timeout-minutes: 40`，产物是带「应用程序」快捷方式的 .dmg，
 并且会把**架构 / 签名 / 版本号**打出来 —— 正好回答第十一节里那几个「没验过」）。
 
+#### 真跑的成绩单（2026-10-11）
+
+**第一次（run 38157899471，4 分钟）+ 失败** —— 跑起来了，`macos/` 的配置层面全对，
+但卡在编译那一步，断点不是我们的 Dart 代码，而是**部署目标太低**：
+
+```
+error: The package product 'gal' requires minimum platform version 11.0 for the macOS platform,
+       but this target supports 10.15 (in target 'FlutterGeneratedPluginSwiftPackage')
+```
+
+Flutter 模板给的是 `MACOSX_DEPLOYMENT_TARGET = 10.15`，而 `gal`（存图到相簿那个包）要 11.0。
+**已修**：Debug / Release / Profile 三份一起提到 11.0，并在 `test/core/macos_runner_test.dart`
+加了一条用例（三份必须一致、且不低于 11.0）—— 这类错本机看不见，只能靠用例和 CI 兜。
+
+**第二次（run 38159115101，8 分 55 秒）+ 全绿**，一口气出了包：
+
+| 事项 | 实测结果 |
+|---|---|
+| 环境 | Flutter **3.44.2**（与开发机同版本）、Xcode 16.4、macOS 15.7.9 arm64 |
+| 编译 | `flutter build macos --release` 成功（约 5 分钟；完整 8m55s）| 
+| 产物 | `Gracelink-1.0.0.dmg`，**45 MB**（46,155,356 字节），含「应用程序」快捷方式 |
+| 架构 | `lipo -archs` 主可执行文件 = **x86_64 arm64（通用包，不只是 arm64）** |
+| 签名 | `Signature=adhoc`、`Identifier=cc.gracelink.im`、`TeamIdentifier=not set`（就是「未签名」那种本地签名）| 
+| 版本号 | `1.0.0+261008`，与 `pubspec.yaml` 一致 |
+| 产物上传 | GitHub Actions 制品 `Gracelink-macos-dmg`，已下载回本机核实是真 dmg（尾部 `koly` 标记在）| 
+
+两条修正：
+
+* 第二节当初定的是「**只出 Apple Silicon**」，实测 Flutter 的 release 直接给了 **x86_64 + arm64 主二进制**；
+  但**内嵌的插件 framework 只验了主二进制那一个**，所以**不能**据此就说「Intel 机器也能用」——
+  要真支持 Intel 得逐个框架看架构（本节错在没查完就下笔）；
+* 流水线里那句「arm64 可能排队更久」是 GitHub 的通告，实测从点火到开跑只有十几秒。
+
+一个次要告警（不影响结果）：`actions/checkout@v4` / `upload-artifact@v4` 走的 Node 20 已弃用，
+将来换 v5 即可。
+
+> 注意：**产物能下载 ≠ 能装能跑**。dmg 收到后本机只验了「是个真 dmg」，「装上去能不能开」
+> 仍然要一台真 Mac（第十节那张清单）。
+
+
 ### GitHub Actions 的 macOS runner（2026 年的实情）
 
 * 标签：`macos-latest` / `macos-15` / `macos-26`（都是 **arm64**），Intel 要显式用 `macos-15-intel`；
@@ -400,6 +440,7 @@ GitHub 上实际这么干的例子 <https://github.com/isar/isar/blob/main/.gith
    对称 NAT 下的打洞），这与 Windows 的表现不会完全一致；
 5. 公证在 CI 里的具体报错（买了账号那天才会遇到：`notarytool` 对 entitlements 很挑，例如多余的 entitlement 会被拒）；
 6. ~~要不要出 universal（arm64 + x86_64）~~ —— **已定：只出 Apple Silicon**（见第二节），
-   要照顾 Intel 老机器的话得另编一套，先不做；
+   要照顾 Intel 老机器的话得另编一套，先不做。⚠️ 后来 CI 实测主二进制**本来就是通吃两份**
+   （见第八节），但内嵌 framework 未逐个验，所以**先别对外说「Intel 也能用」**；
 7. ~~关窗行为要用户拍板~~ —— **已按微信惯例定在第二节**（关窗留后台、⌘Q 真退出），
    至于好不好用，还得真 Mac 上试过才知道。
