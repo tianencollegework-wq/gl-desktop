@@ -277,6 +277,29 @@ if (zhDownload && enDownload) {
     apkOf(zhDownload) === apkOf(enDownload),
     `${apkOf(zhDownload)} vs ${apkOf(enDownload)}`,
   );
+
+  // macOS（2026-10-11 上线时加）：与上面两条同一个道理 ——
+  // 中英两页必须指向同一个包，否则会造出「中文页下的版本和英文页不是一个」。
+  const dmgOf = (content) => /href="([^"]+\.dmg)"/.exec(content)?.[1] ?? '';
+  check(
+    '中英两页的 macOS 安装包地址一致',
+    dmgOf(zhDownload) !== '' && dmgOf(zhDownload) === dmgOf(enDownload),
+    `${dmgOf(zhDownload)} vs ${dmgOf(enDownload)}`,
+  );
+
+  // 那三步放行说明不能静静地消失：macOS 版是未签名的，页面上少了它，
+  // 用户双击被拦后只会以为软件坏了。两个判定点（步骤 3 的字 ＋ macOS 15 那句）
+  // 分别对应「说明在不在」与「是不是那一段」。
+  check(
+    'macOS 首次打开的三步说明在中文页上',
+    zhDownload.includes('仍要打开') && zhDownload.includes('右键'),
+    '中文下载页上找不到「仍要打开」那段（macOS 未签名，少了它用户会以为软件坏了）',
+  );
+  check(
+    'macOS 首次打开的三步说明在英文页上',
+    enDownload.includes('Open Anyway') && enDownload.toLowerCase().includes('right-click'),
+    '英文下载页上找不到 Open Anyway 那段',
+  );
 }
 
 // ------------------- logo 必须是软件自己的，不能是 flutter create 的默认图

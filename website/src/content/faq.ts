@@ -62,7 +62,7 @@ const zh: FaqDoc = {
         {
           q: '恩信支持哪些系统？',
           a: [
-            'Windows 桌面版与 Android 版已经可以下载；iOS 与 macOS 版正在开发中，完成后会在这里开放下载。桌面端与手机端使用同一个账号，消息互通。',
+            'Windows、Android 与 macOS 版已经可以下载；iOS 版正在开发中，预计 2027 年 1 月上线。桌面端与手机端使用同一个账号，消息互通。',
           ],
         },
         {
@@ -82,6 +82,13 @@ const zh: FaqDoc = {
           q: '安卓安装时提示「不允许安装未知应用」怎么办？',
           a: [
             '这是系统对非应用商店安装包的统一保护。按提示允许你正在使用的浏览器或文件管理器安装应用即可，安装完成后可以把这个权限再关掉。',
+          ],
+        },
+        {
+          q: 'macOS 版提示「无法验证开发者」，打不开怎么办？',
+          a: [
+            '这是 macOS 对未经苹果开发者签名软件的默认保护，不是文件损坏、也不是你下错了包。按下面三步放行一次即可，之后系统会记住，双击就能开：一、打开下载的 dmg，把 Gracelink 拖进「应用程序」；二、双击它，弹出提示时点「完成」或「好」；三、打开「系统设置 → 隐私与安全性」，往下找到「安全性」，点「仍要打开」，再输入开机密码。',
+            '注意：macOS 15 及以上不能再靠「右键 → 打开」绕过，只能走上面第三步；「仍要打开」这个按钮在你尝试打开后的约一小时内有效。',
           ],
         },
       ],
@@ -147,7 +154,7 @@ const zh: FaqDoc = {
         {
           q: '聊天记录存在哪里？换设备会同步吗？',
           a: [
-            '聊天记录会同时保存在本机（Windows 在用户数据目录、Android 在应用私有存储）和服务器上：本机的那份用于离线查看与快速加载，服务器的那份用于多端同步与历史记录。',
+            '聊天记录会同时保存在本机（Windows 在用户数据目录、macOS 在应用容器目录、Android 在应用私有存储）和服务器上：本机的那份用于离线查看与快速加载，服务器的那份用于多端同步与历史记录。',
             '换设备后用同一个账号登录，会话与历史会同步回来；你手动保存到相册或下载目录的文件、以及本机独有的内容不会跟着走。',
           ],
         },
@@ -225,13 +232,13 @@ const zh: FaqDoc = {
         {
           q: '聊天记录保存在本机哪里？卸载会删掉吗？',
           a: [
-            'Windows 版保存在当前用户的数据目录（%APPDATA% 下），Android 版保存在应用私有存储中。卸载软件不会自动删除这些数据：Windows 上如需彻底清除，要在卸载后手动删除该目录；Android 上卸载应用会一并清除应用数据。',
+            'Windows 版保存在当前用户的数据目录（%APPDATA% 下），Android 版保存在应用私有存储中，macOS 版保存在应用自己的容器目录里（~/Library/Containers/cc.gracelink.im/）。卸载软件不会自动删除这些数据：Windows 上如需彻底清除，要在卸载后手动删除该目录；macOS 上还要删掉上面那个容器目录；Android 上卸载应用会一并清除应用数据。',
           ],
         },
         {
           q: '怎么把本机的记录和数据清干净？',
           a: [
-            '顺序是：退出登录 → 卸载客户端 → 删除本机用户数据目录（Windows：%APPDATA% 下那个目录；Android 卸载应用即可）。如果连账号侧的资料也要一并清除，可以在客户端里注销账号 —— 注销不可恢复，请先确认。',
+            '顺序是：退出登录 → 卸载客户端 → 删除本机用户数据目录（Windows：%APPDATA% 下那个目录；macOS：~/Library/Containers/cc.gracelink.im/；Android 卸载应用即可）。如果连账号侧的资料也要一并清除，可以在客户端里注销账号 —— 注销不可恢复，请先确认。',
           ],
         },
       ],
@@ -252,9 +259,9 @@ const zh: FaqDoc = {
           ],
         },
         {
-          q: 'iOS 和 macOS 版本什么时候能用？',
+          q: 'iOS 版什么时候能用？',
           a: [
-            '两个版本都在开发中，我们不做时间承诺。准备好之后会在这里开放下载，并同步到客户端的更新清单里。',
+            'iOS 版还在开发中，目前预计 2027 年 1 月上线；如果时间有变化，我们会在这里更新。上线后也会同步到客户端的更新清单里。',
           ],
         },
       ],
@@ -283,7 +290,7 @@ const en: FaqDoc = {
         {
           q: 'Which platforms does Gracelink support?',
           a: [
-            'Windows and Android are available now; the iOS and macOS versions are in development and will appear here once they are ready. The desktop and mobile clients use the same account, and messages stay in sync between them.',
+            'Windows, Android and macOS are available now; the iOS version is in development and expected in January 2027. The desktop and mobile clients use the same account, and messages stay in sync between them.',
           ],
         },
         {
@@ -303,6 +310,13 @@ const en: FaqDoc = {
           q: 'Android asks me to allow installing apps from unknown sources — what should I do?',
           a: [
             'That is the system\'s standard protection for apps that do not come from an app store. Allow the browser or file manager you are using to install the app when prompted; you can turn that permission off again once the installation is done.',
+          ],
+        },
+        {
+          q: 'macOS says it cannot verify the developer — how do I open the app?',
+          a: [
+            'That is macOS protecting you from software that is not signed with an Apple developer certificate — not a corrupt file and not the wrong download. Approve it once with these three steps and the system remembers it: (1) open the dmg and drag Gracelink into Applications; (2) double-click it and click Done when the warning appears; (3) open System Settings → Privacy & Security, scroll to Security, click Open Anyway and enter your login password.',
+            'On macOS 15 and later the old right-click → Open shortcut no longer bypasses this check — only the third step works. The Open Anyway button appears in Settings for about an hour after you first try to open the app.',
           ],
         },
       ],
@@ -368,7 +382,7 @@ const en: FaqDoc = {
         {
           q: 'Where is my chat history kept, and will it follow me to a new device?',
           a: [
-            'Chat history is kept both on your device (in the user data directory on Windows, in the app\'s private storage on Android) and on our servers: the local copy allows offline reading and fast loading, and the server copy provides sync between devices and history.',
+            'Chat history is kept both on your device (the user data directory on Windows, the app\'s own container on macOS, the app\'s private storage on Android) and on our servers: the local copy allows offline reading and fast loading, and the server copy provides sync between devices and history.',
             'Sign in on a new device with the same account and your conversations and history are synced back. Files you saved to your album or download folder yourself, and anything that exists only on the old device, do not come along.',
           ],
         },
@@ -446,13 +460,13 @@ const en: FaqDoc = {
         {
           q: 'Where is my chat history stored on my device, and does uninstalling remove it?',
           a: [
-            'On Windows it is stored in the current user\'s data directory (under %APPDATA%); on Android it is in the app\'s private storage. Uninstalling does not delete this data automatically: on Windows, remove that directory yourself after uninstalling if you want it gone; on Android, uninstalling through the system removes the app data as well.',
+            'On Windows it is stored in the current user\'s data directory (under %APPDATA%); on Android it is in the app\'s private storage; on macOS it is inside the app\'s own container (~/Library/Containers/cc.gracelink.im/). Uninstalling does not delete this data automatically: on Windows, remove that directory yourself after uninstalling if you want it gone; on macOS, remove the container as well; on Android, uninstalling through the system removes the app data too.',
           ],
         },
         {
           q: 'How do I clear everything from my device?',
           a: [
-            'In this order: sign out → uninstall the client → delete the local user data directory (on Windows, the folder under %APPDATA%; on Android, uninstalling the app is enough). If you also want the data on our side removed, close your account in the client first — closure cannot be undone, so please be sure.',
+            'In this order: sign out → uninstall the client → delete the local user data directory (on Windows, the folder under %APPDATA%; on macOS, ~/Library/Containers/cc.gracelink.im/; on Android, uninstalling the app is enough). If you also want the data on our side removed, close your account in the client first — closure cannot be undone, so please be sure.',
           ],
         },
       ],
@@ -473,9 +487,9 @@ const en: FaqDoc = {
           ],
         },
         {
-          q: 'When will iOS and macOS be available?',
+          q: 'When will the iOS version be available?',
           a: [
-            'Both are in development and we are not making a date promise. When they are ready they will be offered here and added to the client\'s update manifest.',
+            'The iOS version is still in development and is currently expected in January 2027. If that changes we will update this page. Once released it will also be added to the client\'s update manifest.',
           ],
         },
       ],

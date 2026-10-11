@@ -19,8 +19,15 @@ interface Props {
   lang: Lang;
   entry: PlatformDownload;
   label: string;
+  /**
+   * 状态那一行下面的补充说明（可选）。
+   *
+   * 目前只给 iOS 用（「预计 2027 年 1 月上线」，用户 2026-10-11 定的）——
+   * 还是个**日期口径**，而卡片上原来只有一个「即将上线」，看不出要等多久。
+   */
+  note?: string;
 }
-const { lang, entry, label } = Astro.props;
+const { lang, entry, label, note } = Astro.props;
 const t = ui[lang].download;
 ---
 
@@ -36,6 +43,7 @@ const t = ui[lang].download;
       <p class={`text-xs ${entry.available ? 'text-brand-deep' : 'text-muted'}`}>
         {entry.available ? t.downloadButton : t.soonButton}
       </p>
+      {note && <p class="mt-0.5 text-xs text-muted">{note}</p>}
     </div>
   </div>
 

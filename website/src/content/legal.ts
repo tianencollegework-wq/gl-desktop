@@ -9,7 +9,8 @@
  *    （`accounts_page.dart`）、群公告 / 管理员 / 群禁言 / 群二维码（`group.*` 语言包）、
  *    音视频与屏幕共享（`group_call_page.dart`、`call.*`）、七种界面语言
  *    （`AppI18n.supportedLocales`）、本机数据与卸载不删（安装许可协议第五节）、
- *    权限清单（`android/app/src/main/AndroidManifest.xml`）、推送与音视频中转用的
+ *    权限清单（`android/app/src/main/AndroidManifest.xml`，macOS 那边是
+ *    `macos/Runner/Release.entitlements` 与 `Info.plist` 里的权限文案）、推送与音视频中转用的
  *    第三方（`google-services.json` → FCM；`SfuPaths` → Cloudflare Realtime）。
  * 2. **不写做不到的承诺**：不写「端到端加密」、不写「服务器看不到你的消息」——
  *    消息是经服务器投递并在服务器上为多端同步而保存的。要写就写「存哪、存多久、
@@ -24,7 +25,7 @@
 import type { Lang } from '../consts';
 
 /** 文档生效/更新日期（页面上的「最后更新」用它） */
-export const LEGAL_UPDATED = '2026-10-10';
+export const LEGAL_UPDATED = '2026-10-11';
 
 /** 对外联系方式：与页脚、FAQ 用的是同一个地址（只此一个口） */
 export const SUPPORT_EMAIL = 'support@gracelink.cc';
@@ -59,7 +60,7 @@ const termsZh: LegalDoc = {
     {
       heading: '一、服务内容',
       paras: [
-        '本服务由客户端软件与服务端两部分组成。客户端目前提供 Windows 桌面版与 Android 移动版，iOS 与 macOS 版本正在开发中；服务端包括账号体系、消息投递、多端同步、音视频通话中转、文件存储与「发现」栏目，由我们运营与维护。客户端仅包含客户端程序，不含服务器端软件。',
+        '本服务由客户端软件与服务端两部分组成。客户端目前提供 Windows 桌面版、Android 移动版与 macOS 版，iOS 版正在开发中（预计 2027 年 1 月发布）；服务端包括账号体系、消息投递、多端同步、音视频通话中转、文件存储与「发现」栏目，由我们运营与维护。客户端仅包含客户端程序，不含服务器端软件。',
         '本服务提供的主要功能包括：单聊与群聊（文字、表情、图片、文件与语音消息，支持引用、转发、撤回与删除）、好友与通讯录管理、群组管理（群公告、群主与管理员、群禁言、群二维码、成员管理）、一对一及群组多人音视频通话（含屏幕共享）、扫码登录、多账号切换与七种界面语言，以及「发现」栏目中的内容服务（灵听音乐与媒体号文章）。',
         '不同平台、不同版本的功能可能不一致；我们新增的功能同样适用本条款。',
         '本服务目前不向用户收取费用。我们可能在未来推出收费功能或调整免费范围，届时会以本页面公示、客户端内提示等合理方式提前告知；已发布的功能不会因后续收费而溯及既往，您也可以选择不使用收费功能。',
@@ -110,7 +111,7 @@ const termsZh: LegalDoc = {
       paras: [
         '我们按照《隐私政策》处理您的个人信息。《隐私政策》与本条款共同构成您与我们之间关于本服务的约定；就个人信息处理的具体规则，以《隐私政策》为准。',
         '为实现消息投递、多端同步与音视频通话，消息、文件与通话数据会经由我们的服务器或我们指定的中转服务器处理，并在为实现功能所必需的范围内保存。',
-        '聊天记录、好友与群组信息、登录状态、设置等数据同时保存在您使用的设备上（Windows 版位于当前用户的数据目录，%APPDATA% 下；Android 版位于应用的私有存储）。请自行做好备份；卸载软件不会自动删除这些数据，彻底清除的方法见《隐私政策》第七条。',
+        '聊天记录、好友与群组信息、登录状态、设置等数据同时保存在您使用的设备上（Windows 版位于当前用户的数据目录，%APPDATA% 下；macOS 版位于应用自己的容器目录，~/Library/Containers/cc.gracelink.im/；Android 版位于应用的私有存储）。请自行做好备份；卸载软件不会自动删除这些数据，彻底清除的方法见《隐私政策》第七条。',
       ],
     },
     {
@@ -126,7 +127,7 @@ const termsZh: LegalDoc = {
       heading: '八、更新与卸载',
       paras: [
         '我们会不定期发布新版本，以修复问题、提升性能或增加功能。客户端可检查更新并下载安装包；在您确认安装新版本后，新版随附的本条款即行适用。',
-        '卸载方式：Windows 版可在客户端「我 → 关于恩信 → 卸载恩信」卸载，也可以在 Windows「设置 → 应用」中卸载；Android 版按系统常规方式卸载。',
+        '卸载方式：Windows 版可在客户端「我 → 关于恩信 → 卸载恩信」卸载，也可以在 Windows「设置 → 应用」中卸载；macOS 版把 Gracelink 从「应用程序」移到废纸篓即可；Android 版按系统常规方式卸载。',
       ],
     },
     {
@@ -164,7 +165,7 @@ const privacyZh: LegalDoc = {
   title: '恩信 Gracelink 隐私政策',
   lede: [
     '本隐私政策说明 Gracelink Team（以下称「我们」）在您使用恩信 Gracelink 客户端软件及相关服务（以下称「本服务」）时，会收集哪些信息、如何使用与保存、与谁共享，以及您如何管理这些信息。',
-    '本政策适用于恩信 Gracelink 的客户端（Windows 桌面版、Android 移动版，以及后续发布的 iOS 与 macOS 版本）、本官网，以及由我们运营的服务端。请您在使用前完整阅读；继续使用本服务，即表示您已阅读并理解本政策。',
+    '本政策适用于恩信 Gracelink 的客户端（Windows 桌面版、Android 移动版、macOS 版，以及后续发布的 iOS 版本）、本官网，以及由我们运营的服务端。请您在使用前完整阅读；继续使用本服务，即表示您已阅读并理解本政策。',
   ],
   sections: [
     {
@@ -188,7 +189,8 @@ const privacyZh: LegalDoc = {
         '麦克风：用于音视频通话与语音消息录制；',
         '存储与相册：用于选择并发送图片与文件、把收到的图片保存到相册、把文件保存到下载目录；',
         '通知：用于展示新消息提醒、来电与群通话邀请（含通话进行中的保活提示）；',
-        '网络与设备状态、电池优化白名单：用于在通话与后台在线期间保持连接，避免被系统省电策略中断。',
+        '网络与设备状态、电池优化白名单：用于在通话与后台在线期间保持连接，避免被系统省电策略中断；',
+        '屏幕录制（macOS）：仅在您主动发起屏幕共享时申请，用于把您的屏幕画面发送到通话中，不会在后台录制。',
       ],
     },
     {
@@ -235,8 +237,8 @@ const privacyZh: LegalDoc = {
     {
       heading: '七、本机数据与清除方式',
       paras: [
-        '为支持离线查看与快速加载，聊天记录、好友与群组信息、登录状态与设置会保存在您使用的设备上：Windows 版位于当前用户的数据目录（%APPDATA% 下）；Android 版位于应用的私有存储，其他应用无法读取。',
-        '卸载软件不会自动删除这些数据。Windows 版卸载后，如需彻底清除，请在文件管理器中删除上述用户数据目录；Android 版在系统中卸载应用会同时清除应用数据。',
+        '为支持离线查看与快速加载，聊天记录、好友与群组信息、登录状态与设置会保存在您使用的设备上：Windows 版位于当前用户的数据目录（%APPDATA% 下）；macOS 版位于应用自己的容器目录（~/Library/Containers/cc.gracelink.im/）；Android 版位于应用的私有存储，其他应用无法读取。',
+        '卸载软件不会自动删除这些数据。Windows 版卸载后，如需彻底清除，请在文件管理器中删除上述用户数据目录；macOS 版卸载后还需删除上述容器目录；Android 版在系统中卸载应用会同时清除应用数据。',
         '本机保存的登录凭据经过加密。请勿把设备交给不可信的人使用，也尽量避免在公共或不安全的电脑上登录。',
       ],
     },
@@ -289,7 +291,7 @@ const termsEn: LegalDoc = {
     {
       heading: '1. The Service',
       paras: [
-        'The Service consists of client software and our server side. The client is currently available for Windows desktop and Android; iOS and macOS versions are in development. The server side — accounts, message delivery, multi-device sync, audio/video call relay, file storage and the Discover section — is operated and maintained by us. The client contains no server-side software.',
+        'The Service consists of client software and our server side. The client is currently available for Windows desktop, Android and macOS; the iOS version is in development (expected in January 2027). The server side — accounts, message delivery, multi-device sync, audio/video call relay, file storage and the Discover section — is operated and maintained by us. The client contains no server-side software.',
         'Main features: one-to-one and group chat (text, emoji, images, files and voice messages, with quoting, forwarding, recall and deletion), friends and contacts management, group management (announcements, owner and admins, group mute, group QR code, member management), one-to-one and multi-party group audio/video calls with screen sharing, signing in by scanning a QR code, switching between multiple accounts and a seven-language interface, plus the content services in the Discover section (Lingting music and Media articles).',
         'Features may differ between platforms and between versions. Features we add are also governed by these Terms.',
         'The Service is currently free of charge. We may introduce paid features or change what is free in future; we will give reasonable advance notice on this page and in the client. Features already released will not become chargeable retroactively, and you may choose not to use paid features.',
@@ -342,7 +344,7 @@ const termsEn: LegalDoc = {
       paras: [
         'We handle your personal information in accordance with the Privacy Policy. The Privacy Policy and these Terms together form the agreement between you and us regarding the Service; for the specific rules on personal information, the Privacy Policy prevails.',
         'To deliver messages, keep devices in sync and carry out audio/video calls, messages, files and call data are processed by our servers or by relay servers we designate, and are stored to the extent necessary to provide those features.',
-        'Chat history, contacts and group information, sign-in state and settings are also stored on the device you use (on Windows in the current user\'s data directory, under %APPDATA%; on Android in the app\'s private storage). Please back them up yourself; uninstalling the software does not delete this data automatically. Section 7 of the Privacy Policy explains how to remove it completely.',
+        'Chat history, contacts and group information, sign-in state and settings are also stored on the device you use (on Windows in the current user\'s data directory, under %APPDATA%; on macOS in the app\'s own container, ~/Library/Containers/cc.gracelink.im/; on Android in the app\'s private storage). Please back them up yourself; uninstalling the software does not delete this data automatically. Section 7 of the Privacy Policy explains how to remove it completely.',
       ],
     },
     {
@@ -358,7 +360,7 @@ const termsEn: LegalDoc = {
       heading: '8. Updates and Uninstalling',
       paras: [
         'We release new versions from time to time to fix problems, improve performance or add features. The client can check for updates and download the installer; once you confirm the installation of a new version, these Terms as supplied with it apply.',
-        'How to uninstall: on Windows, use "Me → About Gracelink → Uninstall Gracelink" in the client, or uninstall Gracelink in Windows "Settings → Apps"; on Android, uninstall the app the usual way.',
+        'How to uninstall: on Windows, use "Me → About Gracelink → Uninstall Gracelink" in the client, or uninstall Gracelink in Windows "Settings → Apps"; on macOS, move Gracelink from Applications to the Trash; on Android, uninstall the app the usual way.',
       ],
     },
     {
@@ -396,7 +398,7 @@ const privacyEn: LegalDoc = {
   title: 'Gracelink Privacy Policy',
   lede: [
     'This Privacy Policy explains what information Gracelink Team ("we", "us") collects when you use the Gracelink client software and related services ("the Service"), how we use and retain it, who we share it with, and how you can manage it.',
-    'It applies to the Gracelink clients (Windows desktop and Android, and the iOS and macOS versions once released), this website, and the servers we operate. Please read it in full before use; continuing to use the Service means you have read and understood it.',
+    'It applies to the Gracelink clients (Windows desktop, Android and macOS, and the iOS version once released), this website, and the servers we operate. Please read it in full before use; continuing to use the Service means you have read and understood it.',
   ],
   sections: [
     {
@@ -420,7 +422,8 @@ const privacyEn: LegalDoc = {
         'Microphone: audio and video calls, and recording voice messages;',
         'Storage and album: choosing and sending images and files, saving received images to your album and files to your download folder;',
         'Notifications: new-message alerts, incoming calls and group-call invitations, including the "call in progress" notice;',
-        'Network and device state, battery-optimisation exemption: keeping the connection alive during calls and while running in the background, so the system\'s power saving does not cut it off.',
+        'Network and device state, battery-optimisation exemption: keeping the connection alive during calls and while running in the background, so the system\'s power saving does not cut it off;',
+        'Screen recording (macOS): requested only when you start sharing your screen, so your display can be sent into the call — never recorded in the background.',
       ],
     },
     {
@@ -467,8 +470,8 @@ const privacyEn: LegalDoc = {
     {
       heading: '7. Data on Your Device and How to Remove It',
       paras: [
-        'To allow offline reading and fast loading, chat history, contacts and group information, sign-in state and settings are stored on the device you use: on Windows in the current user\'s data directory (under %APPDATA%); on Android in the app\'s private storage, which other apps cannot read.',
-        'Uninstalling the software does not delete this data automatically. After uninstalling on Windows, remove that user data directory in your file manager if you want it gone completely; on Android, uninstalling through the system removes the app data as well.',
+        'To allow offline reading and fast loading, chat history, contacts and group information, sign-in state and settings are stored on the device you use: on Windows in the current user\'s data directory (under %APPDATA%); on macOS in the app\'s own container (~/Library/Containers/cc.gracelink.im/); on Android in the app\'s private storage, which other apps cannot read.',
+        'Uninstalling the software does not delete this data automatically. After uninstalling on Windows, remove that user data directory in your file manager if you want it gone completely; on macOS, remove the container as well; on Android, uninstalling through the system removes the app data too.',
         'Sign-in credentials stored on the device are encrypted. Please do not let untrusted people use your device, and avoid signing in on public or untrusted computers.',
       ],
     },

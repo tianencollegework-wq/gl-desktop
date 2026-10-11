@@ -9,8 +9,11 @@
  * 文案口径（2026-10-10 用户定的）：
  * * 口号就是「让沟通更简单，让连接更真实」，不要另创；
  * * **不放**「说清楚数据放在哪」那一类自贬内容（官网不讲自己做不到什么）；
- * * **不放**版本号 / 内部号 / 安装包校验和 / 「未签名会提示未知发布者」这类
- *   面向运维的信息 —— 官网不是发版日志；
+ * * **不放**版本号 / 内部号 / 安装包校验和 这类面向运维的信息 —— 官网不是发版日志。
+ *   ⚠️ 唯一例外是 `download.macosNote`（macOS 首次打开那三步，2026-10-11 加）：
+ *   那不是运维信息、是**用户操作指引** —— macOS 版未签名是既定路线，页面上
+ *   不说这三步，用户双击被拦后只会以为软件坏了。其余以「未签名」为由的说明
+ *   仍不进官网；
  * * 不写「装好、登录、开始用」这种口号，用正常的营销语气。
  */
 import type { Lang } from '../consts';
@@ -21,7 +24,7 @@ const zh = {
   meta: {
     title: '恩信 Gracelink — 让沟通更简单，让连接更真实',
     description:
-      '恩信是桌面与手机上的即时通讯客户端：单聊、群聊、音视频通话、通讯录与群组管理。Windows 与 Android 版本已开放下载。',
+      '恩信是桌面与手机上的即时通讯客户端：单聊、群聊、音视频通话、通讯录与群组管理。Windows、Android 与 macOS 版本已开放下载。',
   },
   nav: {
     features: '功能',
@@ -49,6 +52,8 @@ const zh = {
     macos: 'macOS',
     available: '可下载',
     soon: '即将上线',
+    /** iOS 还没上线，但这次给个时间口径（用户 2026-10-11 定的） */
+    iosEta: '预计 2027 年 1 月上线',
   },
   features: {
     title: '一个客户端，够用且好用',
@@ -84,7 +89,7 @@ const zh = {
     sectionTitle: '下载恩信',
     sectionLede: '选择你的系统，或让手机扫码。',
     cardTitle: '下载客户端',
-    cardLede: 'Windows 与 Android 版本已开放下载；iOS 与 macOS 版本正在准备中。',
+    cardLede: 'Windows、Android 与 macOS 版本已开放下载；iOS 版本预计 2027 年 1 月上线。',
     downloadButton: '下载',
     soonButton: '即将上线',
     scanTitle: '手机扫码下载',
@@ -96,6 +101,24 @@ const zh = {
       '联系人与群组已经躺在列表里，登录即可开始。',
     ],
     allPending: '安装包正在接入中，稍后回来看看。',
+    /**
+     * macOS 首次打开那三步（2026-10-11 macOS 版上线时加）。
+     *
+     * 为什么要写：macOS 版没有买苹果开发者签名，用户双击会被 Gatekeeper 拦下；
+     * 而 **macOS 15 起已经不能再靠「右键 → 打开」绕过**（苹果取消了这个入口），
+     * 只认「系统设置 → 隐私与安全性 → 仍要打开」。不写这三步，用户下完只会
+     * 以为文件坏了或软件有问题。
+     */
+    macosNote: {
+      title: 'macOS 版第一次打开会先被系统拦一下',
+      body: '这不是文件损坏，也不是你下错了包。我们没有购买苹果的开发者签名，所以首次打开时系统会提示无法验证开发者。按下面三步放行一次即可，之后系统会记住，双击就能开。',
+      steps: [
+        '打开下载的 dmg 文件，把 Gracelink 拖进「应用程序」；',
+        '双击它 —— 弹出「无法验证开发者」之类提示时，点「完成」或「好」；',
+        '打开「系统设置 → 隐私与安全性」，往下找到「安全性」，点「仍要打开」，再输入开机密码。',
+      ],
+      tip: 'macOS 15 及以上不能再靠「右键 → 打开」绕过；「仍要打开」这个按钮在你尝试打开后的约一小时内才会出现在设置里。',
+    },
   },
   footer: {
     tagline: '让沟通更简单，让连接更真实。',
@@ -154,7 +177,7 @@ const en: Dict = {
   meta: {
     title: 'Gracelink — Simpler conversations, truer connections',
     description:
-      'Gracelink is a messaging client for desktop and mobile: direct and group chat, audio and video calls, contacts and group management. Windows and Android builds are available.',
+      'Gracelink is a messaging client for desktop and mobile: direct and group chat, audio and video calls, contacts and group management. Windows, Android and macOS builds are available.',
   },
   nav: {
     features: 'Features',
@@ -181,6 +204,7 @@ const en: Dict = {
     macos: 'macOS',
     available: 'Available',
     soon: 'Coming soon',
+    iosEta: 'Expected January 2027',
   },
   features: {
     title: 'One client, everything you need',
@@ -212,7 +236,7 @@ const en: Dict = {
     sectionTitle: 'Download Gracelink',
     sectionLede: 'Pick your platform, or scan the code with your phone.',
     cardTitle: 'Download the client',
-    cardLede: 'Windows and Android builds are available; iOS and macOS are on the way.',
+    cardLede: 'Windows, Android and macOS builds are available; iOS is expected in January 2027.',
     downloadButton: 'Download',
     soonButton: 'Coming soon',
     scanTitle: 'Scan to download',
@@ -224,6 +248,16 @@ const en: Dict = {
       'Your friends and groups are already in the list — sign in and start chatting.',
     ],
     allPending: 'Installers are being wired up — check back shortly.',
+    macosNote: {
+      title: 'On macOS, the system blocks the first launch',
+      body: 'The download is not corrupt and you did not grab the wrong file. We do not hold an Apple developer signing certificate, so macOS reports that it cannot verify the developer the first time you open the app. Approve it once with the three steps below and the system remembers it — double-clicking will work from then on.',
+      steps: [
+        'Open the downloaded dmg and drag Gracelink into Applications;',
+        'Double-click it — when macOS says it cannot verify the developer, click Done;',
+        'Open System Settings → Privacy & Security, scroll to Security, click Open Anyway, then enter your login password.',
+      ],
+      tip: 'On macOS 15 and later the old right-click → Open shortcut no longer works; the Open Anyway button appears in Settings for about an hour after you first try to open the app.',
+    },
   },
   footer: {
     tagline: 'Simpler conversations, truer connections.',

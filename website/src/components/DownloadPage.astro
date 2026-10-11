@@ -26,6 +26,16 @@ const platformLabels: Record<string, string> = {
   ios: t.platforms.ios,
   macos: t.platforms.macos,
 };
+
+// 卡片上那句补充说明：只给**还没上线、但有时间口径**的平台（现在就是 iOS）。
+// 已经能下的平台不需要（微信官网也是这个做法）。
+const platformNotes: Record<string, string | undefined> = {
+  ios: t.platforms.iosEta,
+};
+
+// macOS 首次打开那三步（见 ui.ts 里 `macosNote` 的注释）：**macOS 真能下的时候才摆** ——
+// 哪天这一格回落到占位地址，这段说明也就跟着收起来，不会挂着一段对不上的话。
+const showMacosNote = platforms.macos.available;
 ---
 
 <BaseLayout
@@ -51,10 +61,36 @@ const platformLabels: Record<string, string> = {
     <div class="mt-10 grid gap-5 sm:grid-cols-2">
       {
         PLATFORMS.map((key) => (
-          <DownloadCard lang={lang} entry={platforms[key]} label={platformLabels[key]} />
+          <DownloadCard
+            lang={lang}
+            entry={platforms[key]}
+            label={platformLabels[key]}
+            note={platformNotes[key]}
+          />
         ))
       }
     </div>
+
+    <!-- macOS 首次打开被系统拦下的那三步 -->
+    {
+      showMacosNote && (
+        <div class="mt-8 rounded-2xl border border-brand/20 bg-brand-wash/50 p-7">
+          <h2 class="text-xl font-bold text-ink">{tDownload.macosNote.title}</h2>
+          <p class="mt-3 text-[0.98rem] leading-7 text-ink-soft">{tDownload.macosNote.body}</p>
+          <ol class="mt-5 space-y-3">
+            {tDownload.macosNote.steps.map((step, index) => (
+              <li class="flex gap-3 text-[0.98rem] leading-7 text-ink-soft">
+                <span class="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-brand/12 text-[0.75rem] font-bold text-brand-deep">
+                  {index + 1}
+                </span>
+                <span>{step}</span>
+              </li>
+            ))}
+          </ol>
+          <p class="mt-4 text-sm leading-6 text-muted">{tDownload.macosNote.tip}</p>
+        </div>
+      )
+    }
 
     <!-- 从这里开始 -->
     <div class="mt-14 rounded-2xl border border-line bg-white p-7">
