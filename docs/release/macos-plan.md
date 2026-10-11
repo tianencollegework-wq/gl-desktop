@@ -130,6 +130,30 @@ macOS 用系统红绿灯 + 默认菜单栏即可（`macos/Runner/Base.lproj/Main
 | 检查更新 | `app_update_flow.dart`：非 Android 一律 `openUrl(info.url)` → 交给系统浏览器 | macOS 上就是「打开 .dmg 地址」，**现有逻辑不用改**，只等 `update.json` 的 `macos.url` 填真地址（服务端现在还是 `example.com` 占位，官网下载页因此显示「即将上线」） |
 | 单实例 | Windows runner 里有一套（`tlhelp32.h` 那段） | macOS：`NSRunningApplication` / 一把 named lock + 把已有窗口 `activate` 到前面 |
 
+### 已经落地的（2026-10-11，本机改完、已推上 GitHub）
+
+| 项 | 落成什么样 | 谁守着 |
+|---|---|---|
+| 沙箱联网 | 两份 entitlements 都补了 `network.client`，且两份**逐项对齐**（Debug 只多 `allow-jit` 与 `network.server` 两条调试专用的） | `test/core/macos_runner_test.dart` |
+| 权限文案 | `Info.plist` 补相机 / 麦克风 / 照片（两条）/ 本地网络，另加 `LSApplicationCategoryType` | 同上 |
+| 身份 | bundle id 换成 `cc.gracelink.im`（`AppInfo.xcconfig` 与 `project.pbxproj` 里 RunnerTests 那三处），Copyright 换成 Gracelink | 用例与安卓 `applicationId` 交叉断言 |
+| 图标 | 七张换成本家的标，生成脚本 `tool/icons/make_macos_icons.js`（可重跑） | 用例按像素判据守着（圆角 / 品牌蓝 / 白形 / 四角透明） |
+| 最小窗口 | `MainFlutterWindow.swift` 里 `contentMinSize` = 900×600 | `desktop_window_min_size_test.dart` 新增一条 |
+
+改到一半才发现的两件事（都记在图标脚本头部）：
+
+* 源图 `tool/audit/icon-fg.png` 是**不透明的蓝底座 #008CFF + 白鸽**，不是「透明底 + 图形」——
+  所以脚本不再另画底座（第一版白画了一层，被图标用例的像素判据当场敲出来）；
+* 鸽形在底座里**偏左上**（占位 0.446 / 0.433），安卓那份也是 —— 三平台保持同一位移，别顺手居中。
+
+**这批没做的**：
+
+* **屏幕共享那条沙箱 entitlement 没敢写**：`com.apple.security.device.screen-capture` 这个键名
+  找不到权威出处（确定的是它属于 TCC 那套「屏幕录制」授权），等真机试屏幕共享时再定；
+* **托盘与关窗缩回后台没动**：`applicationShouldTerminateAfterLastWindowClosed` 现在还是 `true`
+  （关掉最后一个窗口就退出）。那要连着 `NSStatusItem`、`windowShouldClose` 一起做，
+  一次做完才敢推 —— 半成品会造出「关掉窗口后程序还在跑、却叫不回来」的状态。
+
 ---
 
 ## 七、签名与分发：不交那 99 美元是什么样
@@ -184,8 +208,23 @@ codesign 签 .app 与 .dmg → notarytool 提交公证 → stapler staple
 
 ## 八、GitHub 这条路的可行性（用户提的，也是本项目的唯一出路）
 
-先说一个现状：**本机根本不是 git 仓库**（`git remote -v` → `fatal: not a git repository`），
+先说一个现状：这台机器原本**根本不是 git 仓库**（`git remote -v` → `fatal: not a git repository`），
 所以「用 GitHub 出包」的第一步是 `git init` + 建仓库，而不是配流水线。
+**2026-10-11 已经做完了**：仓库在 <https://github.com/tianencollegework-wq/gl-desktop>
+（公开、小号），本地 `git init -b main` + 两次提交（初始化 / macOS runner 整改），
+提交作者一律用 GitHub 的匿名邮箱（`<id>+<login>@users.noreply.github.com`），**不暴露真邮箱**。
+
+两个当时踩到、以后还会再踩的坑：
+
+* **推送「推不动」、命令却一直在跑** —— 那是 Windows 的 Git Credential Manager 弹了个登录框
+  在等你（终端里看不到）。`gh auth setup-git --hostname github.com` 把 git 的凭据交给 gh 之后，
+  推送 4.7 秒就完成。以后 `git push` 卡住先想这一条。
+* **`workflow` 是另一张票**：`gh auth login` 默认给的 scope 是 `gist read:org repo`，
+  而 GitHub **拒绝**任何「创建 / 更新 `.github/workflows/…`」的推送，报
+  `refusing to allow an OAuth App to create or update workflow … without 'workflow' scope`。
+  要 `gh auth refresh -h github.com -s workflow` 再授一次权。拿到它之前，
+  `.github/workflows/macos.yml` 先放在工作区里、用 `.git/info/exclude` 挡住 `git add -A`
+  （**不是**写进 `.gitignore`，免得以后忘掉它还没进仓库）。
 
 ### 仓库：**公开**，放在小号上（用户 2026-10-11 定的）
 
