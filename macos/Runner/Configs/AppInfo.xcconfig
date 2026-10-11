@@ -8,7 +8,11 @@
 PRODUCT_NAME = Gracelink
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = com.example.gracelinkim
+// 与 Android 的 applicationId（cc.gracelink.im）、Windows 的 CompanyName 对齐。
+// ⚠️ 换它等于换 App 身份：签名、公证、推送、后台的 `update.json` 都要跟着换
+// （见 docs/release/macos-plan.md 第六节）。RunnerTests 那个 target 在
+// project.pbxproj 里另写了一份，改这里记得一起改。
+PRODUCT_BUNDLE_IDENTIFIER = cc.gracelink.im
 
 // The copyright displayed in application information
-PRODUCT_COPYRIGHT = Copyright © 2026 com.example. All rights reserved.
+PRODUCT_COPYRIGHT = Copyright © 2026 Gracelink. All rights reserved.

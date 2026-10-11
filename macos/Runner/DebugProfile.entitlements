@@ -8,5 +8,20 @@
 	<true/>
 	<key>com.apple.security.network.server</key>
 	<true/>
+	<!-- 以下与 Release 那份逐项一致：调试时该能做的事，正式版也得能做，
+	     否则会出现「本机跑得好好的、打出来的包连不上网」这种最坑的情况。
+	     逐项理由见 Release.entitlements 里的注释。 -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<key>com.apple.security.device.camera</key>
+	<true/>
+	<key>com.apple.security.device.microphone</key>
+	<true/>
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
+	<key>com.apple.security.files.downloads.read-write</key>
+	<true/>
+	<key>com.apple.security.personal-information.photos-library</key>
+	<true/>
 </dict>
 </plist>

@@ -28,5 +28,21 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.social-networking</string>
+	<!-- 下面这几条是「系统弹权限框时要显示的那句话」。
+	     缺了它们不是「拒绝了」，是**直接崩**（TCC 里那条带空字符串的权限项）。
+	     文案：中文在前、英文跟在后面 —— plist 只能放一句，不做多语言；
+	     真要做多语言得加 InfoPlist.strings（七份），那件事没做。 -->
+	<key>NSCameraUsageDescription</key>
+	<string>扫码登录、拍照发图与视频通话需要用到摄像头 / Camera is used for QR login, taking photos and video calls</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>发语音消息与通话时需要用到麦克风 / Microphone is used for voice messages and calls</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>把收到的图片存到「照片」/ Saves received images into Photos</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>把图片存到「照片」相簿时需要访问照片图库 / Needed to save images into a Photos album</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>同一个局域网内通话时，需要在网络里互相发现 / Discovers peers on the same local network for calls</string>
 </dict>
 </plist>

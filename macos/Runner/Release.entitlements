@@ -4,5 +4,26 @@
 <dict>
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
+	<!-- 出网：沙箱下没有这一条，登录 / 收消息 / 拉配置全都连不出去。
+	     这是 Flutter 模板留的坑：它只在 debug 那份里给了一个意思相反的
+	     network.server（那是给 VM service 用的），两份都没有 network.client。
+	     症状是「本机 flutter run 好好的，打出来的包登录一直转圈」。 -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<!-- 扫码登录、拍照发图、视频通话 -->
+	<key>com.apple.security.device.camera</key>
+	<true/>
+	<!-- 语音消息、语音 / 视频通话 -->
+	<key>com.apple.security.device.microphone</key>
+	<true/>
+	<!-- 用户自己选的文件（发文件、存文件） -->
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
+	<!-- 往「下载」目录存图（media_saver 用的 getDownloadsDirectory） -->
+	<key>com.apple.security.files.downloads.read-write</key>
+	<true/>
+	<!-- 存到「照片」（gal） -->
+	<key>com.apple.security.personal-information.photos-library</key>
+	<true/>
 </dict>
 </plist>

@@ -8,7 +8,8 @@ import 'package:gracelinkim/core/platform/desktop_shell.dart';
 /// 为什么值得钉：窗口窄到 [kDesktopFrameMinWidth] 以下就从三栏退回**手机版式**，
 /// 而那一版是把账号密码表单直接摊在页面上的 —— 等于绕开了「密码登陆只对美国出口
 /// IP 开放」那道闸门（`features/login/password_login_policy.dart`）。所以 win32
-/// runner 里那个最小客户区宽度**必须 ≥ [kDesktopFrameMinWidth]**。
+/// runner（以及 macOS 的 `macos/Runner/MainFlutterWindow.swift`）里那个最小客户区
+/// 宽度**必须 ≥ [kDesktopFrameMinWidth]**。
 ///
 /// 这个洞的危险之处在于它是**静悄悄回来的**：Dart 那侧一个用例都不会红，只有人手
 /// 把窗口拖窄才会看见。所以这里直接读 C++ 源码把数字钉住（与 `branding_test.dart`
@@ -73,6 +74,29 @@ void main() {
         int.parse(floor!.group(1)!),
         greaterThanOrEqualTo(kDesktopFrameMinWidth),
       );
+    });
+
+    test('MainFlutterWindow.swift：最小内容区尺寸也要够宽', () {
+      // macOS 那一半（2026-10-11）：同一道闸门，另一边也得堵上 ——
+      // 那边是 `contentMinSize`，写在 awakeFromNib 里（这是个静态常量，
+      // 只认 "NSSize(width: 数字, height: 数字)" 这一种写法）。
+      final source = read('macos/Runner/MainFlutterWindow.swift');
+      final match = RegExp(
+        r'NSSize\(width: (\d+), height: (\d+)\)',
+      ).firstMatch(source);
+      expect(
+        match,
+        isNotNull,
+        reason:
+            'MainFlutterWindow.swift 里那个 contentMinSize 的写法变了，'
+            '同步这条用例（不要把这条闸门一起去掉）',
+      );
+      expect(
+        int.parse(match!.group(1)!),
+        greaterThanOrEqualTo(kDesktopFrameMinWidth),
+        reason: '与 win32_window.cpp 同一个理由：窄窗会把账号密码表单放出来',
+      );
+      expect(int.parse(match.group(2)!), greaterThanOrEqualTo(600));
     });
   });
 }
