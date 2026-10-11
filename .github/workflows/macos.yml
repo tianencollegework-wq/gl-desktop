@@ -1,0 +1,77 @@
+# macOS 打包（**未签名**）—— 背景与取舍见 docs/release/macos-plan.md
+#
+# 为什么要有它：开发机是 Windows，编不出 macOS 包；这台 Mac 由 GitHub 免费提供
+# （**公开仓库**的标准 runner 免费且不限量；私有仓库才按分钟计费）。
+#
+# 它只做三件事：把 .app 编出来 → 打成 .dmg → 当产物传上去。
+# **不签名、不公证**（用户 2026-10-11：「来路不明无所谓」）：用户第一次打开会被系统拦，
+# 要去「系统设置 → 隐私与安全性 → 仍要打开」，那三步写在上面那份计划书第七节。
+# 哪天买了开发者账号，要加的也只有「签 .app → 签 .dmg → 公证 → staple」四步。
+name: macOS 打包
+
+on:
+  workflow_dispatch: # 手动点一下就能跑 —— 第一次就靠它
+  push:
+    tags: ['v*'] # 打了 v* 的 tag 自动出包
+  # 平时 push 不跑：一次 macOS 构建要 5–12 分钟，没必要每次提交都等它
+
+jobs:
+  build-macos:
+    # ⚠️ **钉版本，别用 `macos-latest`**：macos-13 已退役、macos-14 公告 2026-11-02 起
+    # 不再支持；而 macos-15 上「**跑**」Flutter 集成测试有「前台化失败后挂住」的报告
+    # （只是编译不受影响）。将来要在这条流水线里加集成测试那一步时：给它单独加
+    # `timeout-minutes`，或把这一 job 换成 macos-14。
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          # 与 pubspec.yaml 的 SDK 约束（^3.12.2）对齐；本机开发用的就是 3.44.2
+          flutter-version: '3.44.2'
+          channel: stable
+          cache: true
+
+      - name: 环境信息（构建失败时第一条要看的东西）
+        run: |
+          flutter --version
+          xcodebuild -version
+          sw_vers
+
+      - name: 取依赖
+        run: flutter pub get
+
+      - name: 编译（Release）
+        run: flutter build macos --release
+
+      - name: 看一眼产物（架构 / 签名 / 版本号）
+        # 这一条不只是自检：计划书第十一节把「到底出的是 arm64 还是 universal」
+        # 和「Flutter 默认给的是不是本地签名」都列进「没验过」了，这里就是答案。
+        run: |
+          APP="build/macos/Build/Products/Release/Gracelink.app"
+          echo "--- 架构 ---"
+          lipo -archs "$APP/Contents/MacOS/Gracelink"
+          echo "--- 签名 ---"
+          codesign -dv --verbose=2 "$APP" 2>&1 | head -20 || true
+          echo "--- 版本号 ---"
+          echo "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")+$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist")"
+
+      # 里面除了 App 本身，还放一个「应用程序」文件夹（英文名就是 Applications）的快捷方式
+      # —— 这是 Mac 上装软件的标准形态：打开 dmg，把 Gracelink 拖到这个快捷方式上。
+      - name: 打成 dmg（用户打开后拖一下就能装）
+        run: |
+          VERSION=$(grep -m1 '^version:' pubspec.yaml | sed 's/version: //; s/+.*//')
+          APP="build/macos/Build/Products/Release/Gracelink.app"
+          mkdir -p build/dmg
+          cp -R "$APP" build/dmg/
+          ln -s /Applications build/dmg/Applications
+          hdiutil create -volname "Gracelink" -srcfolder build/dmg \
+            -ov -format UDZO "Gracelink-$VERSION.dmg"
+          ls -lh "Gracelink-$VERSION.dmg"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Gracelink-macos-dmg
+          path: Gracelink-*.dmg
+          if-no-files-found: error
