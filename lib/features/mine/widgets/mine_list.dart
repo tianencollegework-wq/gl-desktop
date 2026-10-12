@@ -101,7 +101,12 @@ class MineListItem extends StatelessWidget {
   final IconData? icon;
   final Color iconColor;
 
-  /// 右侧的灰字（版本号、语言名都走它）
+  /// 右侧的灰字（版本号、语言名都走它）。
+  ///
+  /// 太长（客服邮箱这种）会**省略号截断**而不是报 overflow：
+  /// 它以前是个不伸缩的 `Text`，「关于」页那两行联系方式（2026-10-11 新增）
+  /// 在窄屏上把整行撑出 1.9px 的溢出 —— 那是一个开发期就报错、真机上
+  /// 画一条黄黑条纹的绘制缺陷，不该由每一页的文案长度去撞运气。
   final String trailing;
 
   /// 右侧值的颜色，默认那档灰；要表达「已开启 / 需处理」这种状态时才改它
@@ -143,11 +148,15 @@ class MineListItem extends StatelessWidget {
             ),
           ),
           if (trailing.isNotEmpty)
-            Text(
-              trailing,
-              style: TextStyle(
-                fontSize: context.rpx(28),
-                color: trailingColor ?? AppColors.text666,
+            Flexible(
+              child: Text(
+                trailing,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: context.rpx(28),
+                  color: trailingColor ?? AppColors.text666,
+                ),
               ),
             ),
           ?trailingWidget,

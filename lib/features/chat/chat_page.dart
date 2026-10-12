@@ -54,6 +54,8 @@ import '../../domain/chat/group_members.dart';
 import '../../domain/chat/message_actions.dart';
 import '../../domain/chat/message_media.dart';
 import '../../domain/chat/outgoing_message.dart';
+import '../../domain/report/report_reasons.dart';
+import '../common/report_sheet.dart';
 import '../group_call/group_call_session.dart' show groupCallBusyProvider;
 import '../group_call/group_call_sync.dart' show groupCallPresenceProvider;
 import 'image_preview.dart';
@@ -909,6 +911,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         await _forward(message);
       case MessageAction.quote:
         setState(() => _quote = message);
+      case MessageAction.report:
+        await _report(message);
       case MessageAction.delete:
         await _delete(message, i18n);
     }
@@ -933,6 +937,28 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       debugPrint('[消息] 转发失败：${error.message}');
       if (mounted) noticeBus.toast(i18n.t('common.noData'));
     }
+  }
+
+  /// 举报这一条消息（S13.1，2026-10-11 新增）。
+  ///
+  /// 带上发送者（后台那一列要有名字）、消息的 uuid 与数字主键、以及群会话 id
+  /// （单聊不带）。内容预览用 [reportPreview]：让用户在提交前看一眼举报的是哪一条。
+  ///
+  /// 真正的护栏在服务端（只能举报「和我有关的会话」里的消息）；
+  /// 客户端这道只是 [canReport] 那三条（不是我发的 / 没撤回 / 不是系统消息）。
+  Future<void> _report(Message message) async {
+    final i18n = ref.read(appI18nProvider);
+    await showReportSheet(
+      context,
+      target: ReportTarget.message(
+        userId: message.fromUserId,
+        userName: message.fromUserName,
+        msgId: message.msgId ?? '',
+        serverId: message.serverId ?? 0,
+        groupId: message.isGroup == 1 ? widget.conversationId : '',
+        preview: reportPreview(message, i18n.t),
+      ),
+    );
   }
 
   /// 删除（老端先弹一句「删除消息会从所有人的聊天记录中抹掉」）

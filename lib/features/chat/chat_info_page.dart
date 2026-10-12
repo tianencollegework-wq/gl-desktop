@@ -13,7 +13,6 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_dimens.dart';
 import '../../core/ui/notice_bus.dart';
 import '../../core/ui/wechat_dialog.dart';
-import '../../core/ui/success_check.dart';
 import '../../core/ui/text_prompt_dialog.dart';
 import '../../core/util/json_value.dart';
 import '../../data/model/conversation.dart';
@@ -24,6 +23,8 @@ import '../../data/repo/group_admin_repository.dart';
 import '../../data/repo/message_repository.dart';
 import '../../domain/chat/group_admin.dart';
 import '../../domain/chat/group_members.dart';
+import '../../domain/report/report_reasons.dart';
+import '../common/report_sheet.dart';
 import '../contacts/widgets/contact_avatar.dart';
 import 'group_member_picker_page.dart';
 import '../../core/ui/desktop_overlay.dart';
@@ -420,10 +421,30 @@ class _ChatInfoPageState extends ConsumerState<ChatInfoPage> {
     }
   }
 
-  /// 投诉：**只做表面功夫**（用户明确要求：点一下弹「提交成功」+ 一个勾）
-  Future<void> _complain() async {
-    final i18n = ref.read(appI18nProvider);
-    await showSuccessCheck(context, message: i18n.t('chat.complaintDone'));
+  /// 投诉（S13.1，2026-10-11 起是**真的提交**）。
+  ///
+  /// 以前这里是「只做表面功夫」——用户当时的要求就是点一下弹「提交成功」+ 一个勾
+  /// （界面上有这个入口、但不写库）。后来回头补的这三件事之一就是它：点一下
+  /// 要真的有人能看到。现在它提交到 `/enterprise/report/submit`，落到 `yu_report`，
+  /// 后台有一页可以看、可以处理（`public/report-admin.html`）。
+  /// 举报对象：单聊是**对面那个人**（会话 id 就是对方的 `user_id`），
+  /// 群聊是**这个群本身**（`group_id`，服务端会校验我在这个群里）。
+  Future<void> _complain(Conversation conversation) async {
+    await showReportSheet(
+      context,
+      target: _isGroup(conversation)
+          ? ReportTarget.group(
+              groupId: conversation.id,
+              groupName: conversation.displayName,
+            )
+          : ReportTarget.user(
+              userId: conversation.id,
+              userName: conversation.displayName,
+              scene: ReportScene.chat,
+            ),
+      // 入口这一行叫「投诉」，弹层也跟着叫「投诉」（与关于页那条同一个口径）
+      titleKey: 'chat.complaint',
+    );
   }
 
   Future<void> _removeGroup() async {
@@ -497,16 +518,21 @@ class _ChatInfoPageState extends ConsumerState<ChatInfoPage> {
                         ),
                       ],
                     ),
-                    _plainCard(
-                      context,
-                      children: <Widget>[
-                        _row(
-                          context,
-                          label: i18n.t('chat.complaint'),
-                          onTap: _complain,
-                        ),
-                      ],
-                    ),
+                    // 投诉要有对象：单聊投诉对面的人、群投诉这个群。
+                    // 「我的收藏」「系统通知」里投诉谁都不对（那两页没有对象，
+                    // 服务端会回「没有指定举报对象」），所以那两页不给入口 ——
+                    // 老端那两页有入口但点了什么都不会发生，那是假的。
+                    if (isPeerChat || isGroup)
+                      _plainCard(
+                        context,
+                        children: <Widget>[
+                          _row(
+                            context,
+                            label: i18n.t('chat.complaint'),
+                            onTap: () => _complain(conversation),
+                          ),
+                        ],
+                      ),
                     if (isGroup)
                       _dangerCard(
                         context,

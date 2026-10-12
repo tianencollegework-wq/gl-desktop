@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -9,9 +10,12 @@ import '../../core/router/app_router.dart';
 import '../../core/store/session_store.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_dimens.dart';
-import '../../core/ui/success_check.dart';
+import '../../core/ui/link_opener.dart';
+import '../../core/ui/notice_bus.dart';
 import '../../core/ui/wechat_dialog.dart';
 import '../../domain/mine/profile_form.dart';
+import '../../domain/report/report_reasons.dart';
+import '../common/report_sheet.dart';
 import 'app_update_flow.dart';
 import 'widgets/mine_list.dart';
 
@@ -35,8 +39,13 @@ import 'widgets/mine_list.dart';
 /// 站点 logo 与名字都从全局配置来（拿不到就用本地那套）。
 ///
 /// 「版本更新」就是原来的「检查更新」（老端 `checkVersion`），
-/// 「功能介绍」进二级页（老端那七条文案），「投诉」跟聊天信息页一样
-/// **只做表面功夫**（点一下弹「提交成功」+ 一个勾）。
+/// 「功能介绍」进二级页（老端那七条文案）。
+///
+/// 两处与从前不同（2026-10-11，S13）：
+/// * **「投诉」不再是「只做表面功夫」** —— 现在是**真的提交**（平台级反馈，
+///   不针对某个人，落到 `yu_report` 的 `scene=about` 那一类）；
+/// * 多了**「联系我们」**一组：客服邮箱（点一下复制）与官网（点一下进应用内
+///   浏览器）—— 上架审核要看的就是这两样，地址在 `AppInfo` 里改一处就行。
 class AboutPage extends ConsumerWidget {
   const AboutPage({super.key});
 
@@ -102,9 +111,12 @@ class AboutPage extends ConsumerWidget {
                     ),
                     MineListItem(
                       label: i18n.t('chat.complaint'),
-                      onTap: () => showSuccessCheck(
+                      // 平台级反馈：没有具体对象，所以服务端那边收的是
+                      // `scene=about` 的那一类（见 `ReportInput::normalize`）
+                      onTap: () => showReportSheet(
                         context,
-                        message: i18n.t('chat.complaintDone'),
+                        target: ReportTarget.platform(),
+                        titleKey: 'chat.complaint',
                       ),
                     ),
                     MineListItem(
@@ -123,6 +135,25 @@ class AboutPage extends ConsumerWidget {
                       ),
                   ],
                 ),
+                // 「联系我们」：客服邮箱 + 官网（S13.3，上架审核要看的就是这两样）。
+                // 地址在 `AppInfo.supportEmail` / `AppInfo.siteUrl`，改一处即可。
+                MineList(
+                  paddingRpx: 44,
+                  dividerIndentRpx: 0,
+                  header: i18n.t('user.contactUs'),
+                  children: <Widget>[
+                    MineListItem(
+                      label: i18n.t('user.contactEmail'),
+                      trailing: AppInfo.supportEmail,
+                      onTap: () => _copyEmail(context, i18n),
+                    ),
+                    MineListItem(
+                      label: i18n.t('user.contactWebsite'),
+                      trailing: AppInfo.siteHost,
+                      onTap: () => openChatLink(context, AppInfo.siteUrl),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
@@ -130,6 +161,13 @@ class AboutPage extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  /// 客服邮箱那一行：**点一下复制**（手机上没有邮件客户端也照样能用）
+  Future<void> _copyEmail(BuildContext context, AppI18n i18n) async {
+    await Clipboard.setData(const ClipboardData(text: AppInfo.supportEmail));
+    // 复用通用的「复制成功」（老端 `copyOk`），不为一句提示再开一个 key
+    noticeBus.toast(i18n.t('common.copyOk'));
   }
 
   /// 一键卸载：先问一句，再把卸载程序拉起来（它会把 App 关掉、删掉安装目录）

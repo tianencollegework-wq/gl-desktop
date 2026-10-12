@@ -14,6 +14,7 @@ import '../../core/theme/app_dimens.dart';
 import '../../core/ui/notice_bus.dart';
 import '../../core/ui/permission_gate.dart';
 import '../../core/ui/text_prompt_dialog.dart';
+import '../../core/ui/wechat_dialog.dart';
 import '../../core/util/json_value.dart';
 import '../../data/model/global_config.dart';
 import '../../data/model/user_detail.dart';
@@ -25,7 +26,9 @@ import '../../domain/call/call_signal.dart';
 import '../../domain/chat/group_admin.dart';
 import '../../domain/chat/user_group_manage.dart';
 import '../../domain/contacts/user_detail_actions.dart';
+import '../../domain/report/report_reasons.dart';
 import '../chat/image_preview.dart';
+import '../common/report_sheet.dart';
 import '../group_call/group_call_session.dart' show groupCallBusyProvider;
 import '../chat/widgets/group_member_sheets.dart';
 import 'widgets/contact_avatar.dart';
@@ -442,6 +445,46 @@ class _UserDetailPageState extends ConsumerState<UserDetailPage> {
       ),
     );
     if (confirmed != true || !mounted) return;
+    await _doDeleteFriend(detail, isBlack: isBlack);
+  }
+
+  /// 加入黑名单（S13.2，2026-10-11）。
+  ///
+  /// 以前「拉黑」只是「删除好友」那个弹层里的一个开关（`common.joinBlackList`）：
+  /// 想拉黑一个人，得先点删除、再在一个弹层里找到那个开关 —— 相当于没有这个功能。
+  /// 现在它是「⋯」菜单里独立的一项（与微信「朋友资料 › ⋯ › 加入黑名单」同一个位置）。
+  ///
+  /// **服务端语义一点没变**（`Friend::del` 的 `is_black=1`）：删掉好友关系、
+  /// 双方聊天记录一起删、并拦下对方再加我（他那行 `status=3` 会被 `add()` 认出来）。
+  /// 所以这里的确认文案必须把话说全 —— 只写「加入黑名单」会让人以为好友还在。
+  Future<void> _blacklist(UserDetail detail) async {
+    final i18n = ref.read(appI18nProvider);
+    final confirmed = await showWeChatConfirm(
+      context,
+      message: i18n.t('user.blacklistConfirm'),
+      danger: true,
+    );
+    if (confirmed != true || !mounted) return;
+    await _doDeleteFriend(detail, isBlack: true);
+  }
+
+  /// 投诉这个人（S13.1）：资料页就能报，不用先进聊天再长按
+  Future<void> _report(UserDetail detail) async {
+    await showReportSheet(
+      context,
+      target: ReportTarget.user(
+        userId: detail.userId,
+        userName: detail.displayName,
+        scene: ReportScene.profile,
+      ),
+    );
+  }
+
+  /// 删好友 / 拉黑的共同尾巴（两处只差一个 `is_black`）
+  Future<void> _doDeleteFriend(
+    UserDetail detail, {
+    required bool isBlack,
+  }) async {
     try {
       final message = await ref
           .read(contactRepositoryProvider)
@@ -556,24 +599,42 @@ class _UserDetailPageState extends ConsumerState<UserDetailPage> {
       borderRadius: BorderRadius.circular(context.rpx(12)),
     ),
     onSelected: (value) {
-      if (value == _menuDelete) unawaited(_deleteFriend(detail));
+      if (value == _menuDelete) {
+        unawaited(_deleteFriend(detail));
+      } else if (value == _menuBlacklist) {
+        unawaited(_blacklist(detail));
+      } else if (value == _menuReport) {
+        unawaited(_report(detail));
+      }
     },
     itemBuilder: (menuContext) => <PopupMenuEntry<String>>[
-      PopupMenuItem<String>(
-        value: _menuDelete,
-        height: context.rpx(96),
-        child: SizedBox(
-          width: context.rpx(300),
-          child: Text(
-            i18n.t('user.delFriend'),
-            style: const TextStyle(fontSize: 15, color: AppColors.white),
-          ),
-        ),
-      ),
+      // 从轻到重：投诉 → 加入黑名单 → 删除好友
+      _menuItem(context, i18n.t('chat.complaint'), _menuReport),
+      _menuItem(context, i18n.t('common.joinBlackList'), _menuBlacklist),
+      _menuItem(context, i18n.t('user.delFriend'), _menuDelete),
     ],
   );
 
+  /// 菜单里的一项（微信那个深色小卡片上的一行）
+  PopupMenuItem<String> _menuItem(
+    BuildContext context,
+    String label,
+    String value,
+  ) => PopupMenuItem<String>(
+    value: value,
+    height: context.rpx(96),
+    child: SizedBox(
+      width: context.rpx(300),
+      child: Text(
+        label,
+        style: const TextStyle(fontSize: 15, color: AppColors.white),
+      ),
+    ),
+  );
+
   static const String _menuDelete = 'delete';
+  static const String _menuBlacklist = 'blacklist';
+  static const String _menuReport = 'report';
 
   Widget _body(
     BuildContext context,

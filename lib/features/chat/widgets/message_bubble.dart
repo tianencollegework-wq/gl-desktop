@@ -647,6 +647,8 @@ IconData actionIcon(MessageAction action) => switch (action) {
   MessageAction.saveEmoji => Icons.favorite,
   MessageAction.forward => Icons.reply,
   MessageAction.quote => Icons.format_quote,
+  // 举报：微信也是这个「感叹号套盾牌」的样子
+  MessageAction.report => Icons.report_gmailerrorred,
   MessageAction.delete => Icons.delete,
 };
 
@@ -862,6 +864,7 @@ String actionLabelKey(MessageAction action) => switch (action) {
   MessageAction.saveEmoji => 'message.saveEmoji',
   MessageAction.forward => 'message.forward',
   MessageAction.quote => 'message.quote',
+  MessageAction.report => 'report.title',
   MessageAction.delete => 'common.del',
 };
 

@@ -1,5 +1,6 @@
 import '../../core/util/emoji.dart';
 import '../../data/model/message.dart';
+import 'conversation_rules.dart';
 
 /// 长按气泡能做的事（S4.5），对照老端 `pages/message/chat.vue` 里那段
 /// `add-modal` 的 `v-if` 条件。
@@ -19,6 +20,9 @@ enum MessageAction {
   /// 引用（`message.quote`）
   quote,
 
+  /// 举报（S13.1，2026-10-11 新增；老端没有这一项）
+  report,
+
   /// 删除（`common.del`）
   delete,
 }
@@ -34,6 +38,16 @@ const Set<String> forwardBlockedTypes = <String>{'voice', 'webrtc', 'money'};
 
 /// 不能引用的类型（老端：`type!=='webrtc' && type!=='money'`）
 const Set<String> quoteBlockedTypes = <String>{'webrtc', 'money'};
+
+/// 不能举报的类型（2026-10-11）：
+/// * `webrtc` 是通话信令、`money` 是转账 —— 都不是「对方说的一句话」；
+/// * `event` / `admin_notice` 是系统自己发的那几条（入群提示、公告）。
+const Set<String> reportBlockedTypes = <String>{
+  'webrtc',
+  'money',
+  'event',
+  'admin_notice',
+};
 
 /// 这条消息能不能撤回。
 ///
@@ -112,11 +126,29 @@ List<MessageAction> availableActions({
   if (!quoteBlockedTypes.contains(message.type)) {
     actions.add(MessageAction.quote);
   }
+  // 举报（新增）：**别人的**、还在的消息才给这一项。
+  // 自己那条不用举报；已撤回的那条没有内容可看（`isUndo`），也没什么可处理的。
+  if (canReport(message: message, myUserId: myUserId)) {
+    actions.add(MessageAction.report);
+  }
   // 老端：`globalConfig.chatInfo.dbDelMsg && fromUser.id == user.user_id`
   if (dbDelMsg && myUserId != null && message.fromUserId == myUserId) {
     actions.add(MessageAction.delete);
   }
   return actions;
+}
+
+/// 这条消息能不能举报（长按菜单那一项的门槛）。
+///
+/// 三道：**不是我发的**、**还没撤回**、**不是系统类消息**（[reportBlockedTypes]）。
+/// 服务端还有一道更硬的（只能举报和我有关的会话里的消息，见
+/// `Report::mayReportMessage`）—— 这里只是别让用户点开一个注定会被拒的弹层。
+bool canReport({required Message message, required String? myUserId}) {
+  if (myUserId == null || myUserId.isEmpty) return false;
+  if (message.fromUserId == myUserId) return false;
+  if (message.isUndo == 1) return false;
+  if (reportBlockedTypes.contains(message.type)) return false;
+  return true;
 }
 
 /// 复制到剪贴板的内容。
@@ -128,4 +160,17 @@ String copyText(Message message) {
   if (message.type == 'text') return previewText(message.content);
   // 图片/视频/文件的老端行为就是复制 content（一个地址）
   return message.content;
+}
+
+/// 举报弹层里那行「举报的是哪一条」的预览。
+///
+/// 文本走 [previewText]（顺带剥掉表情 token，与复制/列表预览同一套）；
+/// 其余类型换成「[图片]」「[语音]」这类占位 —— 直接把一个文件地址摆进举报框
+/// 对举报人没有任何意义（与 `ConversationRules.previewOf` 同一口径）。
+String reportPreview(Message message, String Function(String key) translate) {
+  if (message.type == 'text') return previewText(message.content);
+  return ConversationRules.preview(
+    type: message.type,
+    translate: translate,
+  );
 }

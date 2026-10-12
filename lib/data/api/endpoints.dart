@@ -76,6 +76,21 @@ abstract final class GroupPaths {
   static const String setNoSpeak = '/enterprise/group/setNoSpeak';
 }
 
+/// 举报（2026-10-11 新增，独立控制器 `app/enterprise/controller/Report.php`）。
+///
+/// 只有提交这一个动作；处理在后台那一侧（`/manage/report/*`，配套页面
+/// `public/report-admin.html`）。
+///
+/// 形状（字段与 `ReportInput::normalize` 认识的键一一对应）：
+///   POST /enterprise/report/submit
+///     {to_user, msg_id, server_id, group_id, reason, detail, scene} → {report_id}
+///
+/// 失败时服务端回**业务码**（4101…4106，见 `domain/report/report_failure.dart`），
+/// 客户端按码出各自语言的文案。
+abstract final class ReportPaths {
+  static const String submit = '/enterprise/report/submit';
+}
+
 abstract final class FriendPaths {
   static const String del = '/enterprise/friend/del';
   static const String add = '/enterprise/friend/add';

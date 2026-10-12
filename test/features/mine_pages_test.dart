@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gracelinkim/app.dart';
@@ -16,6 +17,7 @@ import 'package:gracelinkim/core/platform/app_uninstaller.dart';
 import 'package:gracelinkim/core/platform/app_version.dart';
 import 'package:gracelinkim/core/platform/background_health.dart';
 import 'package:gracelinkim/core/platform/desktop_shell.dart';
+import 'package:gracelinkim/core/platform/webview_host.dart';
 import 'package:gracelinkim/core/net/api_client.dart';
 import 'package:gracelinkim/core/router/session_guard.dart';
 import 'package:gracelinkim/core/store/credential_store.dart';
@@ -108,6 +110,23 @@ class _FakeBackgroundHealth implements BackgroundHealth {
   Future<bool> requestIgnoreBatteryOptimizations() async => true;
 }
 
+/// 假的 webview（真机上是平台视图，测试里建 `WebViewController` 会直接抛），
+/// 只记下「建过哪几个地址」——「关于」页那个官网入口就是靠它验的。
+class _FakeWebViewHost implements WebViewHost {
+  final List<String> created = <String>[];
+
+  @override
+  Widget build({
+    required String url,
+    ValueChanged<int>? onProgress,
+    ValueChanged<String>? onError,
+    ValueChanged<String>? onTitle,
+  }) {
+    created.add(url);
+    return Text('FAKE-WEBVIEW:$url', textDirection: TextDirection.ltr);
+  }
+}
+
 class _FakePicker implements MediaPicker {
   _FakePicker({this.images = const <PickedMedia>[]});
 
@@ -176,6 +195,9 @@ void main() {
   late StreamSubscription<AppNotice> noticeSub;
   late List<AppNotice> notices;
 
+  /// 平台通道被调过的事（剪贴板走这条）
+  late List<MethodCall> platformCalls;
+
   const user = UserInfo(
     userId: 'u1',
     account: '13800000000',
@@ -198,10 +220,19 @@ void main() {
     sessionGuard.update(ready: true, hasSession: true);
     notices = <AppNotice>[];
     noticeSub = noticeBus.stream.listen(notices.add);
+    platformCalls = <MethodCall>[];
+    // 客服邮箱那一行是「点一下复制」：剪贴板要过平台通道，这里截下来看看
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+          platformCalls.add(call);
+          return null;
+        });
   });
 
   tearDown(() async {
     await noticeSub.cancel();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, null);
     sessionGuard.update(ready: false, hasSession: false);
     await db.close();
   });
@@ -235,6 +266,7 @@ void main() {
     ProfileRepository? profile,
     BackgroundHealth? health,
     AppUninstaller? uninstaller,
+    WebViewHost? webViewHost,
     // 桌面行为总开关：测试里默认**关**（`desktopFeaturesEnabled` 认 FLUTTER_TEST），
     // 「功能介绍」按它过滤条目，所以要验电脑端那一份得自己拧开
     bool? desktop,
@@ -269,6 +301,8 @@ void main() {
             backgroundHealthProvider.overrideWithValue(health),
           if (uninstaller != null)
             appUninstallerProvider.overrideWithValue(uninstaller),
+          if (webViewHost != null)
+            webViewHostProvider.overrideWithValue(webViewHost),
           if (desktop != null)
             desktopFeaturesProvider.overrideWithValue(desktop),
           wsStatusProvider.overrideWith(
@@ -1320,22 +1354,87 @@ void main() {
       await disposeApp(tester);
     });
 
-    testWidgets('投诉：只做表面功夫（「提交成功」+ 一个勾）', (tester) async {
+    testWidgets('投诉：不再只做表面功夫 —— 选原因后真的提交到举报接口', (tester) async {
+      // 2026-10-11 这一条改了**行为**：以前点一下只弹「提交成功」+ 一个勾
+      // （用户当时明确要的表面功夫），现在是真的写库（`/enterprise/report/submit`）。
+      adapter.ok(ReportPaths.submit, data: <String, dynamic>{'report_id': 7});
       await pumpMine(tester);
       await openSettings(tester);
       await tester.tap(find.text('关于恩信'));
       await tester.pumpAndSettle();
+
       await tester.tap(find.text('投诉'));
+      await tester.pumpAndSettle();
+
+      // 弹层里是五个原因，未选之前不该发请求
+      expect(find.text('垃圾广告 / 营销'), findsOneWidget);
+      expect(find.text('辱骂 / 骚扰'), findsOneWidget);
+      expect(find.text('其他'), findsOneWidget);
+      expect(adapter.paths, isNot(contains(ReportPaths.submit)));
+      // 关于页那条是**平台级反馈**：不针对某个人，所以不画「举报对象」
+      expect(find.textContaining('举报对象'), findsNothing);
+
+      await tester.tap(find.text('垃圾广告 / 营销'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('提交'));
+      // 只推进两帧：成功过场的动画只有 1.4 秒，`pumpAndSettle` 会一路跑完
+      // （跑完那个勾就自己关了，找不着了）
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(const Duration(milliseconds: 200));
 
-      expect(find.text('提交成功'), findsOneWidget);
-      expect(find.byIcon(Icons.check), findsOneWidget);
+      expect(adapter.paths, contains(ReportPaths.submit));
+      expect(adapter.bodyOf(ReportPaths.submit), <String, dynamic>{
+        'to_user': '',
+        'msg_id': '',
+        'server_id': 0,
+        'group_id': '',
+        'reason': 'ad',
+        'detail': '',
+        'scene': 'about',
+      });
+      // 提交成功：那个「提交成功 + 一个勾」的过场（文案换成了新的那句）
+      expect(find.text('举报已提交，我们会尽快核实处理'), findsOneWidget);
+      // 两个勾：选中那条原因后面的一个 + 成功过场圆圈里那个
+      expect(find.byIcon(Icons.check), findsNWidgets(2));
 
-      // 那个过场动画自己会关（1.4 秒）
+      // 过场自己会关（1.4 秒），然后弹层也关掉
       await tester.pump(const Duration(seconds: 2));
       await tester.pumpAndSettle();
-      expect(find.text('提交成功'), findsNothing);
+      expect(find.text('举报已提交，我们会尽快核实处理'), findsNothing);
+      expect(find.text('垃圾广告 / 营销'), findsNothing);
+
+      await disposeApp(tester);
+    });
+
+    testWidgets('联系我们：客服邮箱点一下复制、官网点一下进应用内浏览器', (tester) async {
+      final host = _FakeWebViewHost();
+      await pumpMine(tester, config: enterpriseConfig(), webViewHost: host);
+      await openSettings(tester);
+      await tester.tap(find.text('关于恩信'));
+      await tester.pumpAndSettle();
+
+      // 两行都在，右边那列写着真实地址（上架审核要看的就是这个）
+      expect(find.text('联系我们'), findsOneWidget);
+      expect(find.text('客服邮箱'), findsOneWidget);
+      expect(find.text(AppInfo.supportEmail), findsOneWidget);
+      expect(find.text('官方网站'), findsOneWidget);
+      expect(find.text(AppInfo.siteHost), findsOneWidget);
+
+      await tester.tap(find.text('客服邮箱'));
+      await tester.pumpAndSettle();
+      final copy = platformCalls.firstWhere(
+        (call) => call.method == 'Clipboard.setData',
+      );
+      expect(
+        (copy.arguments as Map<Object?, Object?>)['text'],
+        AppInfo.supportEmail,
+      );
+      expect(toasts(), contains('复制成功'));
+
+      // 官网域名是我们自己的站点 → 直接进应用内浏览器（与聊天里点链同一条路）
+      await tester.tap(find.text('官方网站'));
+      await tester.pumpAndSettle();
+      expect(host.created, <String>[AppInfo.siteUrl]);
 
       await disposeApp(tester);
     });

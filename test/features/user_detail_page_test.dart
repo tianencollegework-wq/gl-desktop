@@ -466,6 +466,86 @@ void main() {
     await disposeApp(tester);
   });
 
+  testWidgets('「⋯」里独立一项「加入黑名单」：把话说全再删，参数 is_black=1', (tester) async {
+    // S13.2（2026-10-11）：拉黑以前只是「删除好友」那个弹层里的一个开关，
+    // 相当于没有这个功能；现在它是菜单里独立的一项。服务端语义没变
+    // （Friend::del 的 is_black=1：删好友关系 + 双方聊天记录）。
+    await seedFriend();
+    adapter.ok(ChatPaths.userInfo, data: detailJson());
+    adapter.ok(FriendPaths.del, data: null);
+
+    await pumpContacts(tester);
+    await openDetail(tester);
+
+    await tester.tap(find.byIcon(Icons.more_horiz));
+    await tester.pumpAndSettle();
+    // 从轻到重：投诉 / 加入黑名单 / 删除好友
+    expect(find.text('投诉'), findsOneWidget);
+    expect(find.text('加入黑名单'), findsOneWidget);
+    expect(find.text('删除好友'), findsOneWidget);
+
+    await tester.tap(find.text('加入黑名单'));
+    await tester.pumpAndSettle();
+    // 拉黑会连好友关系与聊天记录一起删掉，确认文案必须把它说清楚
+    expect(
+      find.text('加入黑名单会同时删除好友关系与你们的聊天记录，之后也不会再收到对方的好友申请。确定吗？'),
+      findsOneWidget,
+    );
+    expect(adapter.paths, isNot(contains(FriendPaths.del)));
+
+    await tester.tap(find.text('确定'));
+    await tester.pumpAndSettle();
+    expect(adapter.bodyOf(FriendPaths.del), <String, dynamic>{
+      'id': 'u2',
+      'is_black': 1,
+    });
+    expect(await db.findContact('u2'), isNull);
+    expect(find.byType(UserDetailPage), findsNothing);
+
+    await disposeApp(tester);
+  });
+
+  testWidgets('「⋯」里的投诉：打开举报弹层，提交带上这个人（scene=profile）', (tester) async {
+    await seedFriend();
+    adapter.ok(ChatPaths.userInfo, data: detailJson());
+    adapter.ok(ReportPaths.submit, data: <String, dynamic>{'report_id': 3});
+
+    await pumpContacts(tester);
+    await openDetail(tester);
+
+    await tester.tap(find.byIcon(Icons.more_horiz));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('投诉'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('举报对象：'), findsOneWidget);
+    // 没选原因之前发不出去
+    expect(adapter.paths, isNot(contains(ReportPaths.submit)));
+
+    await tester.tap(find.text('辱骂 / 骚扰'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('提交'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+
+    expect(adapter.bodyOf(ReportPaths.submit), <String, dynamic>{
+      'to_user': 'u2',
+      'msg_id': '',
+      'server_id': 0,
+      'group_id': '',
+      'reason': 'harass',
+      'detail': '',
+      'scene': 'profile',
+    });
+    // 提交完是那个「提交成功 + 一个勾」的过场，并且弹层会关掉
+    expect(find.text('举报已提交，我们会尽快核实处理'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+    expect(find.text('辱骂 / 骚扰'), findsNothing);
+
+    await disposeApp(tester);
+  });
+
   testWidgets('正在群语音里：拨 1:1 被拦下（只提示一声，一通都不起）', (tester) async {
     await seedFriend();
     adapter.ok(ChatPaths.userInfo, data: detailJson());

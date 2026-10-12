@@ -210,7 +210,8 @@ void main() {
     expect(find.text('设置当前聊天背景'), findsOneWidget);
     // 「提醒」这个开关微信有、我们没有（用户明确说不要）
     expect(find.text('提醒'), findsNothing);
-    // 清空记录 + 投诉（投诉只是「提交成功」的表面功夫）
+    // 清空记录 + 投诉（2026-10-11 起投诉是**真的提交**：群里投诉的就是这个群，
+    // 见后面「群投诉」那条用例 —— 入口不能因为「群没有具体的被举报人」就消失）
     expect(find.text('清空聊天记录'), findsOneWidget);
     expect(find.text('投诉'), findsOneWidget);
     // 「群通话」那一行已经**不在这一页**了（S6.22）：入口只在聊天页的「＋」面板
@@ -460,7 +461,9 @@ void main() {
     expect(find.text('置顶聊天'), findsOneWidget);
     expect(find.text('查找聊天记录'), findsOneWidget);
     expect(find.text('设置当前聊天背景'), findsOneWidget);
-    expect(find.text('投诉'), findsOneWidget);
+    // 「我的收藏」投诉谁都不对（没有对象，服务端会回「没有指定举报对象」），
+    // 所以这一页不给入口 —— 老端那两页有入口但点了什么都不会发生，那是假的
+    expect(find.text('投诉'), findsNothing);
     // 标题就是普通那句，带不上人数
     expect(find.text('聊天信息'), findsOneWidget);
 
@@ -668,10 +671,14 @@ void main() {
     await disposeApp(tester);
   });
 
-  testWidgets('投诉：只做一个「提交成功 + 一个勾」的动画，不发任何请求', (tester) async {
+  testWidgets('投诉（单聊）：不再只做表面功夫 —— 选原因后真的提交，对象是会话对面的人', (tester) async {
+    // 2026-10-11 这一条改了**行为**：以前点一下只弹「提交成功」+ 一个勾、
+    // 一个请求都不发（用户当时要的表面功夫）；现在真的写到服务端
+    // （`/enterprise/report/submit` → `yu_report`），后台有一页能看、能处理。
     adapter.ok(ChatPaths.messageList, data: <Map<String, dynamic>>[]);
     adapter.ok(ChatPaths.friendList, data: <Map<String, dynamic>>[]);
     adapter.ok(ChatPaths.groupList, data: <Map<String, dynamic>>[]);
+    adapter.ok(ReportPaths.submit, data: <String, dynamic>{'report_id': 12});
     await db.upsertConversation(
       Conversation(
         id: 'u9',
@@ -685,18 +692,91 @@ void main() {
     final requests = adapter.paths.length;
 
     await tester.tap(find.text('投诉'));
+    await tester.pumpAndSettle();
+
+    // 弹层：标题跟着入口叫「投诉」，并且写清楚举报的是谁（单聊就是对面那个人）
+    expect(find.text('举报对象：'), findsOneWidget);
+    expect(find.text('小明'), findsWidgets);
+    expect(adapter.paths.length, requests, reason: '没选原因之前不该发请求');
+
+    await tester.tap(find.text('辱骂 / 骚扰'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('提交'));
+    // 只推进两帧：成功过场的动画只有 1.4 秒，`pumpAndSettle` 会一路跑完
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));
 
-    expect(find.text('提交成功'), findsOneWidget);
-    expect(find.byIcon(Icons.check), findsOneWidget);
+    // 请求体：单聊的会话 id 就是对方的 user_id；没有消息、没有群号。
+    // （这条用例里的 id 是 'u9' 这种假 id，所以原样发；真实会话 id 是数字串，
+    // `idValue('9')` 会变成 9，服务端就是按数字认人的）
+    expect(adapter.requestTo(ReportPaths.submit).data, <String, dynamic>{
+      'to_user': 'u9',
+      'msg_id': '',
+      'server_id': 0,
+      'group_id': '',
+      'reason': 'harass',
+      'detail': '',
+      'scene': 'chat',
+    });
+    // 「提交成功 + 一个勾」的过场还是原来那种观感（文案换了新那句）
+    expect(find.text('举报已提交，我们会尽快核实处理'), findsOneWidget);
+    // 两个勾：选中那条原因后面的一个 + 成功过场圆圈里那个
+    expect(find.byIcon(Icons.check), findsNWidgets(2));
 
-    // 过场动画自己关掉（不用点确认）：跑完 1.4 秒后弹层自己 pop
-    await tester.pump(const Duration(milliseconds: 1500));
+    // 过场自己会关（1.4 秒），然后弹层也关掉
+    await tester.pump(const Duration(seconds: 2));
     await tester.pumpAndSettle();
-    expect(find.text('提交成功'), findsNothing);
-    // 服务端与协议都不动：这段只是表面功夫
-    expect(adapter.paths.length, requests);
+    expect(find.text('举报已提交，我们会尽快核实处理'), findsNothing);
+    expect(find.text('辱骂 / 骚扰'), findsNothing);
+    // 还在聊天信息页（退的是弹层，不是页面）
+    expect(find.byType(ChatInfoPage), findsOneWidget);
+
+    await disposeApp(tester);
+  });
+
+  testWidgets('投诉（群）：报的是**这个群** —— scene=group、group_id 是群号、to_user 为 0', (tester) async {
+    // 群里「投诉谁」常常说不清，用户要投诉的就是这个群：服务端认 group_id，
+    // 并且会校验举报人在这个群里（`app/enterprise/controller/Report.php`）。
+    adapter.ok(ChatPaths.messageList, data: <Map<String, dynamic>>[]);
+    adapter.ok(ChatPaths.friendList, data: <Map<String, dynamic>>[]);
+    adapter.ok(ChatPaths.groupList, data: <Map<String, dynamic>>[]);
+    adapter.ok(
+      GroupPaths.userList,
+      data: <Map<String, dynamic>>[member('u1', '我', 1)],
+      count: 1,
+    );
+    adapter.ok(ReportPaths.submit, data: <String, dynamic>{'report_id': 13});
+    await seedGroup();
+    await pumpApp(tester);
+    await pushChatInfo(tester);
+
+    await tester.tap(find.text('投诉'));
+    await tester.pumpAndSettle();
+
+    // 群投诉这一行说的是「举报的群」，不是「举报对象（某个人）」
+    expect(find.text('举报的群：'), findsOneWidget);
+    expect(find.text('产品群'), findsWidgets);
+
+    await tester.tap(find.text('垃圾广告 / 营销'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('提交'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+
+    expect(adapter.requestTo(ReportPaths.submit).data, <String, dynamic>{
+      'to_user': '',
+      'msg_id': '',
+      'server_id': 0,
+      // 会话 id 原样发（服务端 `ReportInput::groupId` 会把 `group-5` 归一化）
+      'group_id': 'g1',
+      'reason': 'ad',
+      'detail': '',
+      'scene': 'group',
+    });
+    expect(find.text('举报已提交，我们会尽快核实处理'), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
 
     await disposeApp(tester);
   });

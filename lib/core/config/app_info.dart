@@ -13,6 +13,24 @@ abstract final class AppInfo {
   /// 登录页底部显示的版本号
   static const String version = '1.0.0';
 
+  /// 客服邮箱（S13.3，2026-10-11）。
+  ///
+  /// ⚠️ **要换成你们真实的邮箱**：改这一处即可（「关于」页那一行读的就是它），
+  /// 对应的 i18n key 是 `user.contactEmail`（那一行左边那四个字的标题）。
+  ///
+  /// 为什么是常量而不是服务端配置：这一行是**给审核与用户看的联系方式**
+  /// （App Store / 上架材料里也要填），跟服务端那份随时会变的好友/群配置不是一回事。
+  static const String supportEmail = 'support@gracelink.cc';
+
+  /// 官网（「关于」页那一行点开的就是它）。
+  ///
+  /// 走 `openChatLink`：`.cc` 域名属于「我们自己的站点」，直接进应用内浏览器
+  /// （不是跳到系统浏览器，与聊天里点自己站点的链接同一种行为）。
+  static const String siteUrl = 'https://gracelink.cc';
+
+  /// 官网上显示出来的那一小行（不带 `https://`）
+  static const String siteHost = 'gracelink.cc';
+
   /// 应用自己的 logo（**优先于服务端配的那张**，见 `login_page.dart`）。
   ///
   /// 从前的写法是「服务端 `sysInfo.logo` 有就用它、没有才用这张」，于是换品牌

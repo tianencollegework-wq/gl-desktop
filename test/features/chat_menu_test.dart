@@ -74,6 +74,9 @@ void main() {
     String type = 'text',
     String content = '你好',
     String fromUserId = 'u1',
+    // 举报那一条要用到它（群里发的消息服务端就是这个字段为 1），
+    // 默认 0：其余用例都不关心
+    int isGroup = 0,
     List<String> at = const <String>[],
     Map<String, dynamic> extra = const <String, dynamic>{},
   }) => Message(
@@ -85,6 +88,7 @@ void main() {
     type: type,
     content: content,
     sendTime: baseTime + serverId * 1000,
+    isGroup: isGroup,
     at: at,
     extra: extra,
   );
@@ -172,6 +176,60 @@ void main() {
     for (final label in <String>['撤回', '复制', '转发', '引用', '删除']) {
       expect(find.text(label), findsOneWidget, reason: label);
     }
+
+    await disposeApp(tester);
+  });
+
+  testWidgets('别人的消息：菜单里多一项「举报」，点了打开举报弹层并带着这条消息', (tester) async {
+    // S13.1（2026-10-11）：老端长按菜单没有这一项，这是新加的；
+    // 举报对象是**发这条消息的人**，提交时把消息的 uuid / 数字主键 / 群号一起带上
+    // 用真实手机那一档视口：默认的 800×600 是**宽而矮**的，按 rpx 排出来的
+    // 弹层比屏幕高，按钮会落到屏幕外（`ensureVisible` 也救不了没滚动容器的情形）
+    tester.view.physicalSize = const Size(1170, 3000);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+
+    adapter.ok(ChatPaths.messageList, data: <Map<String, dynamic>>[]);
+    adapter.ok(ReportPaths.submit, data: <String, dynamic>{'report_id': 5});
+    await seedConversation();
+    await db.upsertMessages(<Message>[
+      message(1, fromUserId: 'u2', content: '加我微信买片', isGroup: 1),
+    ]);
+    await pumpApp(tester);
+
+    await openMenu(tester, '加我微信买片');
+    // 自己的消息才有的那几项不在，举报在
+    expect(find.text('撤回'), findsNothing);
+    expect(find.text('删除'), findsNothing);
+    expect(find.text('举报'), findsOneWidget);
+
+    await tester.tap(find.text('举报'));
+    await tester.pumpAndSettle();
+
+    // 弹层：举报对象那一行 + 五个原因（内容预览与发送者名字在聊天页上本来就有，
+    // 所以只用弹层独有的那几行来判）
+    expect(find.text('举报对象：'), findsOneWidget);
+    expect(find.text('垃圾广告 / 营销'), findsOneWidget);
+    expect(find.text('其他'), findsOneWidget);
+    expect(adapter.paths, isNot(contains(ReportPaths.submit)));
+
+    await tester.tap(find.text('诈骗 / 欺诈'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('提交'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+
+    expect(adapter.bodyOf(ReportPaths.submit), <String, dynamic>{
+      'to_user': 'u2',
+      'msg_id': 'm1',
+      'server_id': 1,
+      // 群会话 id（服务端会归一化成群号：真机上这个值是 `group-5` 这种形状）
+      'group_id': 'g1',
+      'reason': 'fraud',
+      'detail': '',
+      'scene': 'message',
+    });
+    expect(find.text('举报已提交，我们会尽快核实处理'), findsOneWidget);
 
     await disposeApp(tester);
   });
