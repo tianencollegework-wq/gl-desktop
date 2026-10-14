@@ -99,7 +99,7 @@ jobs:
           flutter test 2>&1 | tee /tmp/test.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
-            bash tool/ci/annotate.sh "全量测试挂了（末尾 40 行）" /tmp/test.log 40
+            bash tool/ci/annotate.sh "全量测试挂了（末尾 60 行）" /tmp/test.log 60
           fi
           exit "$status"
 
@@ -119,8 +119,10 @@ jobs:
           flutter build ios --release --no-codesign 2>&1 | tee /tmp/build-ios.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
-            # 这里挂着的一定是 Swift / 工程配置的报错 —— 也就是这条流水线真正想问的事
-            bash tool/ci/annotate.sh "编译 iOS 挂了（末尾 40 行）" /tmp/build-ios.log 40
+            # 这里挂着的一定是 Swift / 工程配置的报错 —— 也就是这条流水线真正想问的事。
+            # 行数放到 120：Flutter 失败时会把 `Error output from Xcode build:` 那一大段
+            # 原样吐出来，而真正的第一行报错往往被后面的文档式输出推到很远。
+            bash tool/ci/annotate.sh "编译 iOS 挂了（末尾 120 行）" /tmp/build-ios.log 120
           fi
           exit "$status"
 
@@ -191,7 +193,9 @@ jobs:
           flutter test integration_test/boot_smoke_test.dart -d "$SIM" 2>&1 | tee ios-smoke.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
-            bash tool/ci/annotate.sh "模拟器起不来（末尾 40 行）" ios-smoke.log 40
+            # 行数特意放大：这条用例自己会打印 `[SMOKE] 落在=…` 这类线索行，
+            # 而失败的堆栈会把它压到很远的地方 —— 60 行不够，120 行才稳。
+            bash tool/ci/annotate.sh "模拟器起不来（末尾 120 行）" ios-smoke.log 120
           fi
           exit "$status"
 
