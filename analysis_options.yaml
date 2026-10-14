@@ -9,6 +9,23 @@
 # packages, and plugins designed to encourage good coding practices.
 include: package:flutter_lints/flutter.yaml
 
+# 静态检查的范围：**把整个 `build/` 排除掉**。
+#
+# 2026-10-14 现形：这个仓库第一次在 macOS 上跑 `flutter analyze`（CI 的 iOS 那条链）
+# 就红了 156 条，而**一条都不是我们的代码** —— 全在
+# `build/ios/SourcePackages/` 与 `build/macos/SourcePackages/` 里。机制：
+# analyze 那一步会先跑一次 `pub get`，而在 macOS 上它会顺带把 Swift Package
+# Manager 的依赖解析进这两个目录（Firebase 那几个包各自带着 `example/` 与 `test/`，
+# 里面引用了本工程并没有的 mockito、以及 example 自己的 `firebase_options.dart`），
+# 紧接着 analyze 一路走了进去。Windows 上永远不会生成这两个目录，所以本地永远绿。
+#
+# 这不是「把检查放宽了」：`build/` 是构建产物与第三方解出来的源码，本来就不该进
+# 静态检查。复核方式（本机可复现）：在 `build/ios/SourcePackages/` 下放一个故意
+# 写坏的 dart 文件（例如 import 一个不存在的包），`flutter analyze` 应当依旧零问题。
+analyzer:
+  exclude:
+    - "build/**"
+
 linter:
   # The lint rules applied to this project can be customized in the
   # section below to disable rules from the `package:flutter_lints/flutter.yaml`
