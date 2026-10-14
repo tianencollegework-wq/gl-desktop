@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -64,8 +66,12 @@ class _CallKeepAliveNotificationRowState
   @override
   Widget build(BuildContext context) {
     final i18n = ref.watch(appI18nProvider);
-    final supported = ref.watch(callKeepAliveProvider).supported;
-    // 这个平台没有前台服务（iOS/桌面）就不显示这一行
+    // ⚠️ 判的是**平台**，不是 `keepAlive.supported`：iOS 现在也「支持保活」
+    // （后台音频会话，见 IosCallKeepAlive），但它那边根本没有这条常驻通知 ——
+    // 这一行的文案与作用（提前把 POST_NOTIFICATIONS 拿到手）全是安卓的，
+    // 端上去只会多一行对不上的东西。iOS 的通知权限在「设置 › 通知」里已经有一行。
+    final supported =
+        Platform.isAndroid && ref.watch(callKeepAliveProvider).supported;
     if (!supported) return const SizedBox.shrink();
 
     final granted = _granted;

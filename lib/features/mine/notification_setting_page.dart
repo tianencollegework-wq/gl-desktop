@@ -29,7 +29,7 @@ class NotificationSettingPage extends ConsumerWidget {
     final setting = ref.watch(
       sessionStoreProvider.select((state) => state.setting),
     );
-    // 通知权限那一行只有安卓有（iOS 走系统设置，另说）
+    // 通知权限那一行只在手机上有（安卓 / iOS；桌面没有通知权限这回事）
     final hasPermissionRow = ref.watch(backgroundHealthProvider).supported;
 
     void update(AppSetting next) =>

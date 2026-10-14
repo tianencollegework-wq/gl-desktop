@@ -160,7 +160,7 @@ void main() {
       );
     });
 
-    test('通道直接报错时原样抛出（让控制器记日志），查状态失败一律当没在跑', () async {
+    test('通道报「系统不让起服务」时收成 CallKeepAliveException（带系统原文）；查状态失败一律当没在跑', () async {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(
             const MethodChannel('gracelinkim/call_service'),
@@ -170,9 +170,18 @@ void main() {
             ),
           );
 
+      // ⚠️ 2026-10-13：原生侧把这类系统拒绝翻成 PlatformException 回上来
+      //（以前是未捕获的 Java 异常 = 进程当场死 = 用户看到「一打电话就闪退」）。
+      // Dart 侧必须收成 [CallKeepAliveException]：系统原文进诊断面板，通话自己继续。
       await expectLater(
         keepAlive.start(video: false, peerName: '老B'),
-        throwsA(isA<PlatformException>()),
+        throwsA(
+          isA<CallKeepAliveException>().having(
+            (error) => error.message,
+            'message',
+            contains('不允许从后台启动 mic 类型的前台服务'),
+          ),
+        ),
       );
       expect(await keepAlive.isRunning(), isFalse);
       expect(await keepAlive.hasNotificationPermission(), isFalse);
@@ -180,8 +189,93 @@ void main() {
     });
   });
 
-  group('没有前台服务的平台', () {
-    test('空实现：什么都不做，也不会抛（iOS 走后台音频模式，属于 S6.4）', () async {
+  group('iOS 实现（后台音频会话）', () {
+    const keepAlive = IosCallKeepAlive();
+    const channel = MethodChannel('gracelinkim/call_service');
+
+    test('起保活只发「是不是视频通话」—— iOS 没有那条常驻通知，不该编文案', () async {
+      expect(keepAlive.supported, isTrue);
+
+      await keepAlive.start(video: false, peerName: '老B');
+      await keepAlive.start(video: true, peerName: '老B');
+
+      expect(calls.map((call) => call.method), <String>['start', 'start']);
+      final voice = calls.first.arguments as Map<Object?, Object?>;
+      expect(voice['video'], isFalse);
+      // title / text 是安卓常驻通知里那两行字，iOS 没有地方用它们
+      expect(voice.containsKey('title'), isFalse);
+      expect(voice.containsKey('text'), isFalse);
+      expect((calls.last.arguments as Map<Object?, Object?>)['video'], isTrue);
+    });
+
+    test('与安卓不同：**不用轮询确认**（setActive 是同步的，回执就是结论）', () async {
+      await keepAlive.start(video: false, peerName: '老B');
+      expect(calls.where((call) => call.method == 'isRunning'), isEmpty);
+    });
+
+    test('音频会话起不来 → 带系统原文的 CallKeepAliveException（通话自己继续）', () async {
+      // 真机上常见的原因是别的应用占着会话（导航、录音），或系统不允许激活
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            channel,
+            (call) async => throw PlatformException(
+              code: 'audio_session',
+              message: '会话被别的应用占着，激活失败',
+            ),
+          );
+
+      await expectLater(
+        keepAlive.start(video: false, peerName: '老B'),
+        throwsA(
+          isA<CallKeepAliveException>().having(
+            (error) => error.message,
+            'message',
+            contains('会话被别的应用占着'),
+          ),
+        ),
+      );
+      expect(await keepAlive.isRunning(), isFalse);
+    });
+
+    test('旧包里还没有这条通道（MissingPluginException）也收成同一个异常', () async {
+      // 不接的话，一个 MissingPluginException 会从通话路径里冒出去，
+      // 而那类异常在别的封装里是被当成「平台不支持」默默咽掉的
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+
+      await expectLater(
+        keepAlive.start(video: false, peerName: '老B'),
+        throwsA(isA<CallKeepAliveException>()),
+      );
+    });
+
+    test('停 / 查状态 / 查权限 / 申请权限都走同一条通道', () async {
+      results['isRunning'] = true;
+      results['notificationPermission'] = false;
+      results['requestNotificationPermission'] = true;
+
+      await keepAlive.stop();
+      expect(await keepAlive.isRunning(), isTrue);
+      expect(await keepAlive.hasNotificationPermission(), isFalse);
+      expect(await keepAlive.requestNotificationPermission(), isTrue);
+
+      expect(calls.map((call) => call.method), <String>[
+        'stop',
+        'isRunning',
+        'notificationPermission',
+        'requestNotificationPermission',
+      ]);
+    });
+
+    test('投屏在 iOS 上什么都不做（没有类型位可升，更不能假装升好了）', () async {
+      await keepAlive.setScreenSharing(enabled: true);
+      await keepAlive.setScreenSharing(enabled: false);
+      expect(calls, isEmpty);
+    });
+  });
+
+  group('没有保活的平台（桌面）', () {
+    test('空实现：什么都不做，也不会抛', () async {
       const keepAlive = NoopCallKeepAlive();
       expect(keepAlive.supported, isFalse);
       expect(keepAlive.start(video: true, peerName: '老B'), completes);

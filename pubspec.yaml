@@ -31,6 +31,13 @@ dependencies:
   drift: ^2.35.0
   drift_flutter: ^0.3.1
   just_audio: ^0.10.6
+  # 音频会话（iOS 的 AVAudioSession 分类 / 安卓的音频焦点）。
+  # **本来是 `audio_service` 拉进来的传递依赖**，这里提成直接依赖只有一个原因：
+  # iOS 上「灵听切后台就被系统停」这件事，靠的就是在播放前把会话设成
+  # `playback` 并激活 —— 而那个 API 只有这个包给（`just_audio` 自己一行都不碰
+  # `AVAudioSession`，实测：它的 darwin 源码里没有这个类的踪影）。
+  # 声明成直接依赖只是「用了它就该写上」：版本仍与锁定的 0.2.4 一致，不动解析结果。
+  audio_session: ^0.2.4
   image_picker: ^1.2.3
   # 发图前在本地压小（S4.4c）。用它而不是纯 Dart 的 package:image，
   # 是因为它走系统原生编码：快得多，而且能把 iPhone 的 HEIC 和 EXIF 方向一起处理掉。

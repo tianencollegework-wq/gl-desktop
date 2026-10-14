@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 
 import '../../core/audio/voice_player.dart';
+import '../../core/platform/audio_session_configurator.dart';
 import '../../core/platform/system_media_session.dart';
 import '../../data/model/lingting/lyric.dart';
 import '../../data/model/lingting/song.dart';
@@ -122,9 +123,16 @@ class LingtingPlayerNotifier extends Notifier<LingtingPlayerState> {
   /// 已经上报过「播放记录」的那首歌（同一首反复点不重复上报）
   int _reportedSongId = 0;
 
+  /// 音频会话（iOS 上让音乐切后台 / 锁屏还能继续响，见 [AudioSessionConfigurator]）。
+  ///
+  /// 在 `build()` 里取一次存着，而不是每次用的时候 `ref.read`：
+  /// [_release] 是在 provider **销毁**时跑的，那时候读 ref 已经不安全了。
+  AudioSessionConfigurator _audioSession = const NoopAudioSessionConfigurator();
+
   @override
   LingtingPlayerState build() {
     ref.onDispose(() => unawaited(_release()));
+    _audioSession = ref.read(audioSessionConfiguratorProvider);
     _bindMediaSession();
     return const LingtingPlayerState();
   }
@@ -268,6 +276,8 @@ class LingtingPlayerNotifier extends Notifier<LingtingPlayerState> {
   Future<void> stop() async {
     _reportElapsed();
     await stopEngine();
+    // 不放了就把喇叭还给别人：通话 / 别人放音乐都等着这条会话让开
+    await _closeAudioSession();
     _lyric = LingtingLyric.empty;
     _pushedLyric = '';
     state = state.copyWith(
@@ -325,6 +335,10 @@ class LingtingPlayerNotifier extends Notifier<LingtingPlayerState> {
     // 观感就是「通知栏显示『正在播放音频』，过一会儿才自己变对」。
     _syncSession(queue: true);
     try {
+      // 先让系统知道「要出声了」再起播：iOS 上分类必须在播放器出声**之前**设好，
+      // 反过来的话第一句会被系统按旧分类（默认那个「尊重静音键、切后台就停」的）
+      // 处理，而且锁屏那一下已经算后台了 —— 那时再补已经晚了。
+      await _openAudioSession();
       final duration = await startEngine(song);
       if (!ref.mounted) return;
       state = state.copyWith(
@@ -364,6 +378,9 @@ class LingtingPlayerNotifier extends Notifier<LingtingPlayerState> {
     final atEnd =
         state.duration > Duration.zero && state.position >= state.duration;
     if (atEnd) await seekEngine(Duration.zero);
+    // 继续播之前也重设一次：暂停这点时间里可能来过电话、别的应用抢过喇叭，
+    // 会话的分类早就不是我们那份了（设一次是幂等的）
+    await _openAudioSession();
     await playEngine();
     _startClock();
     if (ref.mounted) {
@@ -501,6 +518,29 @@ class LingtingPlayerNotifier extends Notifier<LingtingPlayerState> {
     }
   }
 
+  // ------------------------------------------------------------ 音频会话（iOS）
+
+  /// 「这就要出声了」：把会话设成放音并激活（非 iOS 上是空操作）。
+  ///
+  /// 这里再包一层 try 是有意的：[IosAudioSessionConfigurator] 自己已经吞了异常，
+  /// 但这一层挡住的是「将来换成别的实现」——音频会话绝不能把播放本身搞挂。
+  Future<void> _openAudioSession() async {
+    try {
+      await _audioSession.music();
+    } on Object catch (error) {
+      debugPrint('[灵听] 音频会话没设上（不影响播放）：$error');
+    }
+  }
+
+  /// 「不放了」：把会话交还系统（挂断 / 停止 / 播放器释放时各调一次）
+  Future<void> _closeAudioSession() async {
+    try {
+      await _audioSession.idle();
+    } on Object catch (error) {
+      debugPrint('[灵听] 音频会话没还回去（不影响别的）：$error');
+    }
+  }
+
   // ------------------------------------------------------------ 引擎（测试里覆写）
 
   /// 真正开始播：交给 `just_audio`，返回时长
@@ -560,6 +600,9 @@ class LingtingPlayerNotifier extends Notifier<LingtingPlayerState> {
   }
 
   Future<void> _release() async {
+    // 播放器要没了：会话也得跟着还回去（否则锁屏上那张卡片、以及被我们按住的
+    // 别的应用的音频，会在播放器已经不存在之后还挂着一会儿）
+    await _closeAudioSession();
     _clock?.stop();
     _clock = null;
     await _positionSub?.cancel();

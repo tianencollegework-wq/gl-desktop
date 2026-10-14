@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -68,8 +70,7 @@ class _CallKeepAliveSelfCheckState
             ),
             SizedBox(height: context.rpx(8)),
             Text(
-              '支持：${_keepAlive.supported ? '是（安卓）' : '否（这个平台没有前台服务）'}\n'
-              '起服务后通知栏应出现「与 自检 语音/视频通话中」；停服务后立刻消失。',
+              _intro(),
               style: TextStyle(
                 fontSize: context.rpx(24),
                 height: 1.4,
@@ -151,6 +152,24 @@ class _CallKeepAliveSelfCheckState
       ),
     ),
   );
+
+  /// 这页的说明只在**安卓**上说得通（它一直在讲通知栏那条「通话中」）：iOS 的
+  /// 保活是后台音频会话，点「起服务」不会出现任何通知 —— 所以按平台分开写，
+  /// 免得在 iPhone 上自检的人对着一个不会出现的通知等半天。
+  String _intro() {
+    if (!_keepAlive.supported) {
+      return '支持：否（这个平台没有通话保活）\n'
+          '桌面端进程不会被系统冻结，本来也不需要它。';
+    }
+    if (Platform.isIOS) {
+      return '支持：是（iOS：后台音频会话，`UIBackgroundModes: audio`）\n'
+          '点「起服务」后本应用的音频会话会激活（状态行里能看到 isRunning = true），\n'
+          '此时把 App 切到后台或锁屏，通话不会断 —— iOS 上没有通知栏那条「通话中」，\n'
+          '那是系统来电界面（CallKit）的事，还没做。';
+    }
+    return '支持：是（安卓：前台服务）\n'
+        '起服务后通知栏应出现「与 自检 语音/视频通话中」；停服务后立刻消失。';
+  }
 
   Future<void> _start({required bool video}) async {
     final keepAlive = _keepAlive;

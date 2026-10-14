@@ -24,7 +24,11 @@ import 'app_settings.dart' show appSettingsChannelName;
 /// 抽成接口的理由与 `CallKeepAlive` / `MediaSaver` 一样：平台能力只有真机能验，
 /// 而「什么时候该提示、点一下跳哪里」必须能在单测里钉住。
 abstract interface class BackgroundHealth {
-  /// 这个平台有没有这两道开关（只有安卓有；iOS/桌面直接算「都正常」）
+  /// 这个平台有没有「系统可能会让你收不到消息」这类开关。
+  ///
+  /// 安卓有两道（通知权限 + 电池优化），iOS 只有一道（通知权限，
+  /// 电池那条在这边根本不存在），桌面没有 —— 但三端走的都是这一个接口，
+  /// 界面只问「要不要显示那行/那条提示」。
   bool get supported;
 
   /// 通知权限开着吗（安卓 13 以下恒为 true）
@@ -135,10 +139,78 @@ class AndroidBackgroundHealth implements BackgroundHealth {
   }
 }
 
-/// 没有这两道开关的平台（iOS / 桌面）：都当成正常，不提示。
+/// iOS 实现：**只有「通知权限」那一道是真的**，电池那条在 iOS 上不存在。
 ///
-/// iOS 的后台收消息靠 APNs + 后台音频模式，跟这两条无关；真接推送（S8.1）时
-/// 再补 iOS 的对应提示（通知权限 + 后台刷新），那时实现的是同一个接口。
+/// 为什么 iOS 也要接（而不是继续用 Noop）：iPhone 上用户把通知关掉之后，
+/// 后台收消息这件事就没了 —— 消息进了库、提示音响了，通知栏里空空如也，
+/// 锁屏时用户根本不知道有人找过他。那正是会话列表顶部那条红提示条
+/// （`system.notNotify`）想说的事，与安卓一模一样。
+///
+/// 三处「安卓有、iOS 没有」的地方就直接如实回答（而不是伪造一个状态）：
+/// * 电池优化白名单 —— iOS 不存在这个东西，后台能不能干活由
+///   `UIBackgroundModes` 与音频会话决定（已在 Info.plist 里声明），所以恒 true；
+/// * 「全屏通知」开关 —— 那是安卓 14 才有的东西，来电界面在 iOS 上是应用自己画的；
+/// * 通知设置页的深链 —— iOS 只有 `openSettingsURLString`（本应用的设置页），
+///   通知、麦克风、相机都在那一页里，没有更细的页面可跳。
+class IosBackgroundHealth implements BackgroundHealth {
+  // ignore: prefer_initializing_formals —— 可注入是为了单测能替掉那条通道
+  const IosBackgroundHealth({MethodChannel? channel}) : _channel = channel;
+
+  final MethodChannel? _channel;
+
+  static const MethodChannel _defaultChannel = MethodChannel(
+    appSettingsChannelName,
+  );
+
+  MethodChannel get _methodChannel => _channel ?? _defaultChannel;
+
+  @override
+  bool get supported => true;
+
+  @override
+  Future<bool> notificationGranted() async {
+    try {
+      return await _methodChannel.invokeMethod<bool>(
+            'notificationPermission',
+          ) ??
+          true;
+    } catch (error) {
+      // 查不出来就不该拿着一条红提示条去烦用户（与安卓那份同一个口径）
+      debugPrint('[后台开关] 查询通知权限失败：$error');
+      return true;
+    }
+  }
+
+  /// iOS 没有「电池优化白名单」：后台能收到消息靠的是系统的静默推送
+  /// （`UIBackgroundModes: remote-notification`）与音频会话，与省电策略无关。
+  @override
+  Future<bool> ignoringBatteryOptimizations() async => true;
+
+  @override
+  Future<bool> openNotificationSettings() => _openSettings('openNotificationSettings');
+
+  @override
+  Future<bool> requestIgnoreBatteryOptimizations() async => false;
+
+  @override
+  Future<bool> fullScreenIntentAllowed() async => true;
+
+  @override
+  Future<bool> openFullScreenIntentSettings() async => false;
+
+  /// 跳转类的调用：跳不跳成不影响提示条该不该在，所以只记日志。
+  Future<bool> _openSettings(String method) async {
+    try {
+      await _methodChannel.invokeMethod<void>(method);
+      return true;
+    } catch (error) {
+      debugPrint('[后台开关] $method 失败：$error');
+      return false;
+    }
+  }
+}
+
+/// 没有这些开关的平台（桌面）：都当成正常，不提示。
 class NoopBackgroundHealth implements BackgroundHealth {
   const NoopBackgroundHealth();
 
@@ -164,8 +236,8 @@ class NoopBackgroundHealth implements BackgroundHealth {
   Future<bool> openFullScreenIntentSettings() async => false;
 }
 
-final backgroundHealthProvider = Provider<BackgroundHealth>(
-  (ref) => Platform.isAndroid
-      ? const AndroidBackgroundHealth()
-      : const NoopBackgroundHealth(),
-);
+final backgroundHealthProvider = Provider<BackgroundHealth>((ref) {
+  if (Platform.isAndroid) return const AndroidBackgroundHealth();
+  if (Platform.isIOS) return const IosBackgroundHealth();
+  return const NoopBackgroundHealth();
+});

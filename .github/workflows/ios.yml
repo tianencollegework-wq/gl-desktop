@@ -1,0 +1,176 @@
+# iOS 构建与自检（**不签名**）—— 背景与取舍见 docs/release/ios-plan.md
+#
+# 为什么要有它：开发机是 Windows，`flutter build ios` 只能在 macOS 上跑，
+# 而用户手上**没有 Mac**（连 iPhone 都没有，更别提真机调试）。这台 Mac 由
+# GitHub 免费提供（**公开仓库**的标准 runner 免费且不限量；私有仓库才按分钟计费）。
+#
+# 它做三件事，**一件都不需要开发者账号**：
+# 1. `flutter build ios --release --no-codesign`——真的把 iOS 那个 target 编一遍：
+#    Swift 写错了、包名 / entitlements / 最低版本配错了、插件在 iOS 上少东西，
+#    全都在这一步现形（本机一条都验不了）；
+# 2. 在**模拟器**上把生产路径的 `main()` 真跑一遍
+#    （`integration_test/boot_smoke_test.dart`，与 macOS 那条同一个用例）——
+#    「编得过」不等于「跑得起来」，Mac 那条链就是被这一格坑过的；
+# 3. 顺手截一张模拟器的图当产物 —— 让「iPhone 上长什么样」变成能看的东西。
+#
+# 它**不**做的：签名、TestFlight、上架 —— 那些要开发者账号（12 月买），
+# 步骤写在 docs/release/ios-plan.md 第三节，届时在本文件末尾补一个 job 即可。
+name: iOS 构建与自检
+
+on:
+  workflow_dispatch: # 手动点一下就能跑 —— 第一次就靠它
+  push:
+    # ⚠️ 2026-10-14 修：这一行原先**没有**，于是下面那句「动到 iOS 文件就跑」
+    # 从来没生效过。GitHub 的语义是「只定义 tags 而不定义 branches 时，workflow
+    # 不会为分支事件运行」（官方原文：“If you define only tags/tags-ignore or only
+    # branches/branches-ignore, the workflow won't run for events affecting the
+    # undefined Git ref.”）—— 也就是说，原样写着 push 到 main 一次都不会触发，
+    # 只剩手动点。第一次跑绿之前，这条自动触发是唯一会主动提醒我们的东西。
+    branches: [main]
+    tags: ['v*'] # 打了 v* 的 tag 也自动出一次（注意：path 过滤器对 tag 推送不生效）
+    # 平时不跟着每次提交跑（一次 macOS 构建 10 分钟上下），只在**动到 iOS
+    # 那些文件**时跑：iOS 的工作量基本都落在 ios/ 里，这样自动反馈够用，
+    # 又不用为每次改 Dart 干等。想在本地先看一眼就手点 workflow_dispatch。
+    paths:
+      - 'ios/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - '.github/workflows/ios.yml'
+
+# 同一个 ref 上只留最新一次：真卡住时最烦的不是它白跑，是它占着队列位
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── 1. 编得出来（不需要账号，也不需要模拟器）──────────────────────────────
+  build-ios:
+    # ⚠️ 钉版本，别用 macos-latest：与 macos.yml 保持一致（那边记着 runner 退役的
+    # 时间表）。iOS 构建对 Xcode 版本敏感，换来换去只会让「上次还好好的」变噪音。
+    runs-on: macos-15
+    # 冷缓存实测：pub get + analyze + test + 首次 build ios 约 15–25 分钟。
+    # 留了余量，但不夸张 —— 真卡住时那多出来的每一分钟都是白占队列。
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          # 与 pubspec.yaml 的 SDK 约束（^3.12.2）对齐；本机开发用的就是 3.44.2
+          flutter-version: '3.44.2'
+          channel: stable
+          cache: true
+
+      - name: 环境信息（构建失败时第一条要看的东西）
+        run: |
+          flutter --version
+          xcodebuild -version
+          sw_vers
+          echo "--- 可用的 iOS 运行时 ---"
+          xcrun simctl list runtimes | head -10
+
+      - name: 取依赖
+        run: flutter pub get
+
+      - name: 静态检查（Dart 侧，与本地同一条）
+        run: flutter analyze
+
+      - name: 单元测试（Dart 侧全量；iOS 那条链的守卫用例也在里面）
+        run: flutter test
+
+      - name: 编译 iOS（Release，不签名）
+        # 不签名照样能编：Flutter 这条命令会把 CODE_SIGNING_ALLOWED 关掉。
+        # 拿到的东西装不到任何设备上（没有签名），但**编得过**这件事本身就是
+        # 我们现在唯一能验的东西。
+        run: flutter build ios --release --no-codesign
+
+      - name: 看一眼产物（版本号与二进制）
+        # 这一条不只是自检：它把「Info.plist 里的版本号真的是 pubspec 那个」
+        # 摆出来（两边接的是 FLUTTER_BUILD_NAME / FLUTTER_BUILD_NUMBER）。
+        run: |
+          APP=build/ios/iphoneos/Runner.app
+          ls -la "$APP" | head -10
+          echo "--- 版本号（真机上的「关于」页读的就是这两条）---"
+          echo "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")+$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")"
+          echo "--- 后台模式与权限文案（配错了这里就是空的）---"
+          /usr/libexec/PlistBuddy -c 'Print :UIBackgroundModes' "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :NSCameraUsageDescription' "$APP/Info.plist"
+          echo "--- 架构 ---"
+          lipo -archs "$APP/Runner"
+
+      - name: 核心那两块真的进包了
+        # 少一样就白编：App.framework 是 Dart 那一半，flutter_assets 是资源
+        #（i18n / 通话铃声 / 图标）。体积为 0 或目录不存在都说明打歪了。
+        run: |
+          APP=build/ios/iphoneos/Runner.app
+          test -s "$APP/Frameworks/App.framework/App"
+          test -s "$APP/Frameworks/App.framework/flutter_assets/AssetManifest.bin"
+          du -sh "$APP" "$APP/Frameworks/App.framework/flutter_assets"
+
+  # ── 2. 起得来（模拟器；同样不需要账号）───────────────────────────────────
+  simulator-smoke:
+    runs-on: macos-15
+    # 用例自己判死（见 boot_smoke_test.dart 里的超时），这里再套一层壳：
+    # 万一是「App 起来了但前台化失败」那种挂住，至少有上限、不白占队列。
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.2'
+          channel: stable
+          cache: true
+
+      - name: 取依赖
+        run: flutter pub get
+
+      - name: 挑一台模拟器并起它
+        # **动态挑**而不是写死机型名：runner 镜像里预装的机型每一代都在换
+        #（iPhone 15 → 16 → …），写死名字的下一步就是「某天突然全红」。
+        run: |
+          UDID=$(xcrun simctl list devices available | grep -m1 "iPhone" \
+            | grep -oE '[0-9A-Fa-f-]{36}')
+          if [ -z "$UDID" ]; then
+            echo "runner 上居然没有可用的 iPhone 模拟器，列出来看看："
+            xcrun simctl list devices available
+            exit 1
+          fi
+          echo "SIM=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl list devices | grep "$UDID"
+
+      - name: 真启动一次（跑到登录页就算过）
+        # `set -o pipefail`：不加的话 tee 成功就整体算成功，测试红了也当绿的。
+        # 这条用例与 macOS 那条是**同一个文件**：判据用的是类型而不是文案，
+        # 所以英文系统 / 干净设备上都成立（见它自己的注释）。
+        run: |
+          set -o pipefail
+          flutter test integration_test/boot_smoke_test.dart -d "$SIM" 2>&1 | tee ios-smoke.log
+
+      - name: 截一张模拟器的图（失败时也能看出当时屏幕上是啥）
+        # 用例跑完 App 会被收掉，所以这张**很可能是桌面**：它的用处是
+        # 「红的时候能看一眼那时的模拟器状态」，不是当验收截图。
+        if: always()
+        run: |
+          xcrun simctl io "$SIM" screenshot ios-simulator.png || true
+          ls -la ios-simulator.png || true
+
+      - name: 启动日志（失败时唯一的现场）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-smoke-log
+          path: |
+            ios-smoke.log
+            ios-simulator.png
+          if-no-files-found: warn
+
+# ── 买号之后要补的那一块（先留在这里，免得再翻一遍文档）────────────────────
+#
+# 那时多出来的东西只有「签名 + 上传 TestFlight」，需要一个 job 与六个 secret：
+#   BUILD_CERTIFICATE_BASE64 / P12_PASSWORD / KEYCHAIN_PASSWORD
+#   APPSTORE_API_KEY_ID / APPSTORE_ISSUER_ID / APPSTORE_API_PRIVATE_KEY
+# 步骤见 docs/release/ios-plan.md 第三节（建 App ID、勾推送、导出证书、
+# `xcodebuild -exportArchive` + `xcrun altool/notarytool` 或 fastlane pilot）。
+# 在那之前**不要**先写一个跑不通的 job：一个永远红的流水线比没有更糟。

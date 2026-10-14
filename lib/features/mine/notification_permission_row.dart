@@ -69,7 +69,9 @@ class _NotificationPermissionRowState
   @override
   Widget build(BuildContext context) {
     final i18n = ref.watch(appI18nProvider);
-    // 只有安卓有这道开关（iOS 的通知权限走系统设置，另说）
+    // 只有手机有这道开关（桌面没有通知权限这回事，那边 `supported` 是 false）。
+    // iOS 现在也走这里：点一下跳到本应用的设置页 —— 苹果没有「本应用的通知设置」
+    // 这种深链，能到的最深处就是那一页（通知、麦克风、相机都在里面）。
     if (!ref.watch(backgroundHealthProvider).supported) {
       return const SizedBox.shrink();
     }

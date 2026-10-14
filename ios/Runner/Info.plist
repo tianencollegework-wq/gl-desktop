@@ -14,6 +14,20 @@
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
+	<!-- App 支持哪几种语言。iOS 与安卓不同：它**只看这里**，不看 pubspec、也不看
+	     我们 assets/i18n 里放了几个 json。不写这一段，用户在
+	     「设置 › 通用 › 语言与地区 › App」里根本看不到 Gracelink，
+	     系统也不会替应用切语言（与 assets/i18n 下的七份一一对应）。 -->
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>zh-Hans</string>
+		<string>zh-Hant</string>
+		<string>ja</string>
+		<string>de</string>
+		<string>es</string>
+		<string>fr</string>
+	</array>
 	<key>CFBundleName</key>
 	<string>Gracelink</string>
 	<key>CFBundlePackageType</key>
@@ -26,6 +40,59 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- 出口合规：本应用只用了系统自带的 HTTPS/TLS（dio、WebRTC 的 DTLS/mTLS 都在
+	     系统框架里），属于豁免范围，所以这里直接答 false。
+	     不写它的代价不是「不能上架」，是**每次上传都停下来问你一遍**
+	     （App Store Connect 那道「是否使用加密」），而答错一次就得走一遍审核说明。 -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<!-- 明文 HTTP（ATS）。我们的地址全是 https，所以**不动 ATS 的默认值** ——
+	     只放开局域网：开发时 `--dart-define=API_SCHEME=http --dart-define=API_HOST=192.168.x.x`
+	     联调会被默认策略拦掉，而那种拦是静默的（请求直接失败，看不出是 ATS）。
+	     NSAllowsLocalNetworking 只管内网地址，公网 http **照样不允许**：
+	     真要开某个域名得加 NSExceptionDomains，那件事刻意没做。 -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<!-- 系统弹权限框时要显示的那句话。缺了它们不是「用户拒绝了」，是**进程直接崩**
+	     （与 macOS 那份同一个坑）。文案：中文在前、英文跟在后面 —— plist 只能放一句，
+	     不做多语言；真要多语言得加 InfoPlist.strings（七份），那件事没做。 -->
+	<key>NSCameraUsageDescription</key>
+	<string>扫码登录、拍照发图与视频通话需要用到摄像头 / Camera is used for QR login, taking photos and video calls</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>发语音消息与通话时需要用到麦克风 / Microphone is used for voice messages and calls</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>把收到的图片存到「照片」/ Saves received images into Photos</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>把图片存到「照片」相簿时需要访问照片图库 / Needed to save images into a Photos album</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>同一个局域网内通话时，需要在网络里互相发现 / Discovers peers on the same local network for calls</string>
+	<!-- 哪些自定义 scheme 允许被查询（canOpenURL）。url_launcher 的 iOS 实现里
+	     `canLaunchUrl` 走的就是它，而**没列在这里的 scheme 会被直接判成「打不开」**，
+	     表现是点一下什么都不发生 —— 我们踩过的两个正是「打电话」与「去系统设置」。
+	     现在 Dart 侧只调 launchUrl（那条不看这份清单），所以这是给以后加判断留的；
+	     列出来的都是本应用真的会开的：电话、系统设置页、以及网页。 -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>tel</string>
+		<string>app-settings</string>
+		<string>https</string>
+		<string>http</string>
+	</array>
+	<!-- 后台模式。iOS 上「切到后台还继续干活」不是靠前台服务（那是安卓那条路），
+	     而是靠**在这里声明用途** + 一条活着的东西撑着： -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<!-- 通话与灵听：音频会话活着，进程就不会被系统冻住（对应安卓的
+		     CallForegroundService 与 audio_service 那条前台服务）。 -->
+		<string>audio</string>
+		<!-- 静默推送：服务端发的是数据消息，APNs 那一跳带 content-available，
+		     它把 App 拉进后台、由 firebase_messaging 的后台 isolate 把通知画出来
+		     （见 lib/core/notify/push_background.dart）。 -->
+		<string>remote-notification</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

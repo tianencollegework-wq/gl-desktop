@@ -36,10 +36,18 @@ class CallKeepAliveException implements Exception {
 /// **「每条结束路径都要停干净」这件事必须能在单测里钉住**（漏一条就会留下
 /// 「麦克风正在使用」的常驻通知，用户会当成病毒）。
 abstract interface class CallKeepAlive {
-  /// 这个平台有没有前台服务（安卓有；iOS 用后台音频模式，属于 S6.4）
+  /// 这个平台有没有「通话期间不让系统把进程冻住」这条路。
+  ///
+  /// 两端都有，但**不是同一件事**：
+  /// * 安卓 = 前台服务（带常驻通知，见 [AndroidCallKeepAlive]）；
+  /// * iOS = 一条活着的音频会话 + `UIBackgroundModes: audio`（见 [IosCallKeepAlive]）。
+  ///
+  /// 所以这个值只该被「要不要起保活」这类判断用；
+  /// 「通知栏那条通话中」是安卓独有的，界面要单独判（见
+  /// `features/call/call_keep_alive_notification_row.dart`）。
   bool get supported;
 
-  /// 起服务。文案按当前语言拼好（通知里是中文/英文得跟着语言走）。
+  /// 起保活。文案按当前语言拼好（安卓那条常驻通知里是中文/英文得跟着语言走）。
   ///
   /// 失败会**抛**（调用方自己决定怎么处理：控制器只记日志，绝不让保活失败影响通话）。
   Future<void> start({required bool video, required String peerName});
@@ -119,14 +127,24 @@ class AndroidCallKeepAlive implements CallKeepAlive {
   @override
   Future<void> start({required bool video, required String peerName}) async {
     final i18n = AppI18n.instance;
-    await _methodChannel.invokeMethod<void>('start', <String, dynamic>{
-      'video': video,
-      'title': i18n.t(
-        video ? 'call.ongoingVideo' : 'call.ongoingVoice',
-        <String, String>{'name': peerName},
-      ),
-      'text': i18n.t('call.keepBack'),
-    });
+    try {
+      await _methodChannel.invokeMethod<void>('start', <String, dynamic>{
+        'video': video,
+        'title': i18n.t(
+          video ? 'call.ongoingVideo' : 'call.ongoingVoice',
+          <String, String>{'name': peerName},
+        ),
+        'text': i18n.t('call.keepBack'),
+      });
+    } on PlatformException catch (error) {
+      // ⚠️ 2026-10-13：安卓 12 起**从后台启动前台服务会被系统拒绝**
+      // （`ForegroundServiceStartNotAllowedException`，有的 ROM 给 `SecurityException`），
+      // 而它正是在「刚取到媒体、正要起保活」那一刻被调用的 —— 国产 ROM 对后台启动更严。
+      // 原生侧现在把这类系统拒绝翻成 PlatformException 回上来（以前是未捕获的
+      // Java 异常 = 进程当场死 = 用户看到的「一打电话就闪退」）。
+      // 这里收成 [CallKeepAliveException]：系统原文进诊断面板，**通话继续**。
+      throw CallKeepAliveException('前台服务没起来：${_systemText(error)}');
+    }
 
     final deadline = DateTime.now().add(startTimeout);
     while (DateTime.now().isBefore(deadline)) {
@@ -134,6 +152,12 @@ class AndroidCallKeepAlive implements CallKeepAlive {
       await Future<void>.delayed(pollInterval);
     }
     throw CallKeepAliveException('前台服务没有起来：${await _lastErrorReason()}');
+  }
+
+  /// 系统原文（拿不到 message 就退回 code）：诊断面板里要看清「到底为什么被拒」
+  static String _systemText(PlatformException error) {
+    final message = error.message ?? '';
+    return message.isEmpty ? error.code : message;
   }
 
   /// 服务侧记下的失败原因。
@@ -243,10 +267,110 @@ class AndroidCallKeepAlive implements CallKeepAlive {
   }
 }
 
-/// 没有前台服务的平台（iOS / 桌面）：什么都不做。
+/// iOS 实现：同一条通道（`gracelinkim/call_service`），做的却是另一件事 ——
+/// **不是起服务，是把音频会话激活**。
 ///
-/// iOS 的对应能力是 `UIBackgroundModes: audio` + `audio_session` 的 voiceChat
-/// 模式，跟音频路由（S6.4）同源，那一步一起做。
+/// 机制：iOS 上没有「常驻通知 + 前台服务」这种东西，切后台之后进程能不能活着由
+/// **两件事**决定：Info.plist 里声明的 `UIBackgroundModes: audio`，以及一条真的
+/// 处于 active 的 `AVAudioSession`。通话本来就在采麦克风，所以只要把会话设成
+/// `playAndRecord` / `voiceChat` 并激活，系统就不会冻死我们 —— 效果与安卓那条
+/// 前台服务一样（对方不会再听到「打一半没了」），只是**没有那条常驻通知**
+/// （iOS 上那是系统来电界面 / CallKit 的事，属于买号之后那条路，
+/// 见 docs/release/ios-plan.md）。
+///
+/// 与安卓实现的三个差别（都不是省略，是那边没有这些东西）：
+/// * **不用轮询确认**：`setActive` 是同步的，回执回来时状态已经定了；安卓那边
+///   `startForegroundService` 是异步的，非得读回一次才知道起没起；
+/// * **没有通知文案**：`title` / `text` 是安卓常驻通知里那两行字，iOS 用不上
+///   （所以 start 只把 `video` 发过去）；
+/// * **没有类型位**：`setScreenSharing` 在 iOS 上是空的 —— 投屏要 ReplayKit 的
+///   广播扩展，界面上那颗钮本来就不画（`supportsScreenShare` 不含 iOS）。
+class IosCallKeepAlive implements CallKeepAlive {
+  // 可注入的 `channel` 是为了单测能替掉那条通道（本文件顶部已整体忽略
+  // prefer_initializing_formals）
+  const IosCallKeepAlive({MethodChannel? channel}) : _channel = channel;
+
+  final MethodChannel? _channel;
+
+  static const MethodChannel _defaultChannel = MethodChannel(
+    'gracelinkim/call_service',
+  );
+
+  MethodChannel get _methodChannel => _channel ?? _defaultChannel;
+
+  @override
+  bool get supported => true;
+
+  @override
+  Future<void> start({required bool video, required String peerName}) async {
+    try {
+      // peerName 不发：原生那一侧没有地方用它（没有通知可画）
+      await _methodChannel.invokeMethod<void>('start', <String, dynamic>{
+        'video': video,
+      });
+    } on MissingPluginException {
+      // 旧安装包 / 还没实现这条通道：当成「起不来」，让控制器记一行诊断
+      throw const CallKeepAliveException('这个 iOS 包里还没有保活通道（旧版本）');
+    } on PlatformException catch (error) {
+      // 原生侧把 `AVAudioSession` 那一步的报错原文抛上来（起不来/被别的应用占着）
+      throw CallKeepAliveException('后台音频会话没起来：${_systemText(error)}');
+    }
+  }
+
+  @override
+  Future<void> stop() => _methodChannel.invokeMethod<void>('stop');
+
+  @override
+  Future<void> setScreenSharing({required bool enabled}) async {
+    // iOS 上没有「给服务加一个投屏类型位」这回事（投屏要 ReplayKit 的广播扩展，
+    // 那条路没做）。调用方被 `supportsScreenShare` 挡着，正常走不到这里；
+    // 真调到了也什么都不做 —— 绝不能假装「升级成功了」，那样上层会去取屏，
+    // 而 iOS 上取不到，失败会以更难懂的样子露出来。
+  }
+
+  @override
+  Future<bool> isRunning() async {
+    try {
+      return await _methodChannel.invokeMethod<bool>('isRunning') ?? false;
+    } catch (error) {
+      // 诊断用的一行字，拿不到就当没在跑（不要因此弹提示）
+      debugPrint('[保活] 查询音频会话状态失败：$error');
+      return false;
+    }
+  }
+
+  @override
+  Future<bool> hasNotificationPermission() async {
+    try {
+      return await _methodChannel.invokeMethod<bool>('notificationPermission') ??
+          true;
+    } catch (error) {
+      debugPrint('[保活] 查询通知权限失败：$error');
+      return false;
+    }
+  }
+
+  @override
+  Future<bool> requestNotificationPermission() async {
+    try {
+      return await _methodChannel.invokeMethod<bool>(
+            'requestNotificationPermission',
+          ) ??
+          false;
+    } catch (error) {
+      debugPrint('[保活] 申请通知权限失败：$error');
+      return false;
+    }
+  }
+
+  /// 系统原文（拿不到 message 就退回 code）：诊断面板里要看清到底为什么没起来
+  static String _systemText(PlatformException error) {
+    final message = error.message ?? '';
+    return message.isEmpty ? error.code : message;
+  }
+}
+
+/// 没有保活的平台（桌面：进程挂了就挂了，那边也没有「通话中」的进程要被冻住）。
 class NoopCallKeepAlive implements CallKeepAlive {
   const NoopCallKeepAlive();
 
@@ -272,8 +396,8 @@ class NoopCallKeepAlive implements CallKeepAlive {
   Future<bool> requestNotificationPermission() async => true;
 }
 
-final callKeepAliveProvider = Provider<CallKeepAlive>(
-  (ref) => Platform.isAndroid
-      ? const AndroidCallKeepAlive()
-      : const NoopCallKeepAlive(),
-);
+final callKeepAliveProvider = Provider<CallKeepAlive>((ref) {
+  if (Platform.isAndroid) return const AndroidCallKeepAlive();
+  if (Platform.isIOS) return const IosCallKeepAlive();
+  return const NoopCallKeepAlive();
+});

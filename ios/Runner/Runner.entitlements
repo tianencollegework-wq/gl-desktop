@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- 推送（S8.1）：iOS 上收到服务端那条数据消息，只有拿到这一条许可才行。
+	     它由**签名时的描述文件**决定：Debug 拿开发描述文件 = development，
+	     App Store / TestFlight 的证书会把它覆盖成 production（所以这里写死
+	     development 是对的做法，Xcode 会在签名那一步替换）。
+
+	     ⚠️ 代价：App ID 没有勾「Push Notifications」时，**签名会直接失败**
+	     （entitlements 里有、描述文件里没有的东西一定会被拒）。
+	     所以买号之后的第一件事是建 App ID `cc.gracelink.im` 并勾上推送，
+	     再进 Xcode 打开自动签名（见 docs/release/ios-plan.md 第三节）。
+
+	     与 macOS 那份的区别：macOS 的 entitlements 是沙箱那一套
+	     （network.client / device.camera …），iOS 没有沙箱，权限归 Info.plist
+	     与运行时授权框管 —— 两边不能互相抄。 -->
+	<key>aps-environment</key>
+	<string>development</string>
+</dict>
+</plist>

@@ -35,6 +35,40 @@ void main() {
 
   tearDown(() => installHandler(present: false));
 
+  group('iOS 实现（只有通知权限那一道是真的）', () {
+    const health = IosBackgroundHealth();
+
+    test('通知权限照实读；电池那条在 iOS 上不存在 —— 恒 true，不撑起红条', () async {
+      expect(health.supported, isTrue);
+
+      results['notificationPermission'] = false;
+      expect(await health.notificationGranted(), isFalse);
+      // 后台能不能收到消息靠 UIBackgroundModes + 音频会话，与省电策略无关：
+      // 这里不能因为「查不到」就给用户挂一条没意义的红提示条
+      expect(await health.ignoringBatteryOptimizations(), isTrue);
+      expect(await health.fullScreenIntentAllowed(), isTrue);
+      expect(calls.map((call) => call.method).toList(), <String>[
+        'notificationPermission',
+      ]);
+    });
+
+    test('查不出来一律当成「正常」（与安卓同一个口径：误报比漏报更烦人）', () async {
+      installHandler(present: false);
+      expect(await health.notificationGranted(), isTrue);
+    });
+
+    test('点红条：跳本应用的设置页；iOS 上没有的那两条动作回 false、绝不抛', () async {
+      expect(await health.openNotificationSettings(), isTrue);
+      expect(calls.single.method, 'openNotificationSettings');
+      // 电池白名单与「全屏通知」都是安卓特有的东西
+      expect(await health.requestIgnoreBatteryOptimizations(), isFalse);
+      expect(await health.openFullScreenIntentSettings(), isFalse);
+
+      installHandler(present: false);
+      expect(await health.openNotificationSettings(), isFalse);
+    });
+  });
+
   group('安卓实现', () {
     const health = AndroidBackgroundHealth();
 

@@ -5,6 +5,7 @@ import 'package:audio_service/audio_service.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gracelinkim/core/platform/audio_session_configurator.dart';
 import 'package:gracelinkim/core/store/lingting_store.dart';
 import 'package:gracelinkim/data/model/lingting/download.dart';
 import 'package:gracelinkim/data/model/lingting/lyric.dart';
@@ -15,6 +16,35 @@ import 'package:gracelinkim/domain/lingting/lingting_player.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../support/fake_lingting.dart';
+
+/// 音频会话与引擎的**先后顺序**就记在这儿（用例靠它钉住「先设会话、再出声」）。
+/// 两个假件都要往里面写，所以放在文件级。
+final List<String> audioEvents = <String>[];
+
+/// 假音频会话：只记「什么时候被叫去设放音 / 交还」，不碰真的系统会话
+class _FakeAudioSession implements AudioSessionConfigurator {
+  int musicCalls = 0;
+  int idleCalls = 0;
+
+  /// 摆成 true 代表「系统不让激活」：这种情况下播放**必须照旧**
+  bool failMusic = false;
+
+  @override
+  bool get supported => true;
+
+  @override
+  Future<void> music() async {
+    musicCalls += 1;
+    audioEvents.add('music');
+    if (failMusic) throw StateError('系统不让激活');
+  }
+
+  @override
+  Future<void> idle() async {
+    idleCalls += 1;
+    audioEvents.add('idle');
+  }
+}
 
 /// 假引擎：只记「播了哪几首、seek 到哪」，不碰音频子系统
 class _FakePlayer extends LingtingPlayerNotifier {
@@ -38,11 +68,15 @@ class _FakePlayer extends LingtingPlayerNotifier {
     final gate = startGate;
     if (gate != null) await gate.future;
     started.add(song.songId);
+    audioEvents.add('startEngine');
     return duration;
   }
 
   @override
-  Future<void> playEngine() async => plays += 1;
+  Future<void> playEngine() async {
+    plays += 1;
+    audioEvents.add('playEngine');
+  }
 
   @override
   Future<void> pauseEngine() async => pauses += 1;
@@ -65,6 +99,9 @@ void main() {
   late _FakePlayer player;
   late FakeLingtingRepository repository;
 
+  /// 音频会话（iOS 上让音乐切后台还能响；非 iOS 上是空操作）
+  late _FakeAudioSession audioSession;
+
   /// 媒体会话（通知栏/锁屏/耳机键）。
   ///
   /// 和线上一样**先建会话、再建播放器**：播放器构造时会把系统的按键接到自己身上。
@@ -77,10 +114,13 @@ void main() {
     session = LingtingAudioHandler();
     activeLingtingAudioHandler = session;
     repository = FakeLingtingRepository(FakeLingtingApi());
+    audioEvents.clear();
+    audioSession = _FakeAudioSession();
     container = ProviderContainer(
       overrides: [
         lingtingRepositoryProvider.overrideWithValue(repository),
         lingtingPlayerProvider.overrideWith(_FakePlayer.new),
+        audioSessionConfiguratorProvider.overrideWithValue(audioSession),
       ],
     );
     player = container.read(lingtingPlayerProvider.notifier) as _FakePlayer;
@@ -168,6 +208,68 @@ void main() {
       player.failNextStart = true;
       await player.playQueue(<LingtingSong>[fakeSong(1)]);
       expect(read().playing, isFalse);
+    });
+  });
+
+  group('音频会话（iOS 上让音乐切后台 / 锁屏还能继续响）', () {
+    test('起播前就把会话设好 —— 分类必须在出声之前生效', () async {
+      await player.playQueue(<LingtingSong>[fakeSong(1)]);
+      // 顺序是这份契约里真正要钉的东西：先出声再设分类的话，第一句会按系统默认
+      // 那个分类（切后台就停、静音键还管得着）被处理，而锁屏那一下已经算后台
+      expect(audioEvents, <String>['music', 'startEngine']);
+      expect(audioSession.musicCalls, 1);
+    });
+
+    test('切歌再设一次，暂停后继续播也再设一次', () async {
+      await player.playQueue(<LingtingSong>[fakeSong(1), fakeSong(2)]);
+      await player.next();
+      expect(audioSession.musicCalls, 2, reason: '切歌也走同一段起播逻辑');
+
+      await player.toggle(); // 暂停
+      expect(
+        audioSession.musicCalls,
+        2,
+        reason: '暂停不用重设：会话留着，继续播才能立刻响',
+      );
+      // 继续播之前要再设一次 —— 暂停这会儿可能来过电话、别的应用抢过喇叭，
+      // 分类早就不是我们那份了（在 iPhone 上就是「接着响了一下，然后没了」）
+      await player.toggle();
+      expect(audioSession.musicCalls, 3);
+      expect(audioEvents.last, 'playEngine');
+    });
+
+    test('停止播放就把会话交还（否则别人的音乐一直被按着）', () async {
+      await player.playQueue(<LingtingSong>[fakeSong(1)]);
+      await player.stop();
+      expect(audioSession.idleCalls, 1);
+      expect(audioEvents.last, 'idle');
+    });
+
+    test('播放器被释放（退出灵听 / 容器销毁）时也把会话交还', () async {
+      final ownSession = _FakeAudioSession();
+      final own = ProviderContainer(
+        overrides: [
+          lingtingRepositoryProvider.overrideWithValue(repository),
+          lingtingPlayerProvider.overrideWith(_FakePlayer.new),
+          audioSessionConfiguratorProvider.overrideWithValue(ownSession),
+        ],
+      );
+      await own
+          .read(lingtingPlayerProvider.notifier)
+          .playQueue(<LingtingSong>[fakeSong(1)]);
+      own.dispose();
+      // `_release` 是 unawaited 起的：把事件循环跑一圈再看
+      await pumpEventQueue();
+      expect(ownSession.idleCalls, greaterThanOrEqualTo(1));
+    });
+
+    test('会话设不上也不影响播放（那一步是锦上添花，不得掉过头来掐音乐）', () async {
+      // 钉的是「音频会话那一步的失败绝不能让音乐停下」：它在 iPhone 上可能叫不通，
+      // 在别的平台上根本不存在，两种都不该影响播放
+      audioSession.failMusic = true;
+      await player.playQueue(<LingtingSong>[fakeSong(1)]);
+      expect(read().playing, isTrue);
+      expect(player.started, <int>[1]);
     });
   });
 

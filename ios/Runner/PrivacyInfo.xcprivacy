@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- 隐私清单（PrivacyInfo.xcprivacy）。苹果 2024-05 起要求：上传到
+	     App Store Connect 的包里必须有这份东西，否则**上传那一步就被挡**
+	     （不是审核被拒，是根本传不上去）。
+
+	     这份说的是「**本应用自己**收集/访问了什么」。插件各自的清单由它们自己带
+	     （shared_preferences、flutter_local_notifications 这些包里都有
+	     PrivacyInfo.xcprivacy），App Store Connect 会把它们合在一起 ——
+	     所以这里只写我们自己的部分，不要替插件写。
+
+	     ⚠️ 上架前请按当时的真实情况再核一遍（这一份是按当前代码写的）：
+	     我们自己的服务器就是运营方，消息/图片/语音都存在 `message.gracelink.cc`
+	     上，所以属于「收集」而不是「仅设备内处理」。 -->
+	<key>NSPrivacyTracking</key>
+	<!-- 不做广告追踪、不接第三方统计 SDK（音频、崩溃都走自己的服务器）。 -->
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array>
+		<!-- 聊天内容（文本）：存在自己的服务器上，用来实现功能本身 -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeEmailsOrTextMessages</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+		<!-- 发出去的图片与视频 -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypePhotosorVideos</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+		<!-- 语音消息与通话录音（自己不录音，但通话的音频流是实时上传到 SFU 的） -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeAudioData</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+		<!-- 账号标识（user_id） -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeUserID</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+		<!-- 设备标识：推送用的那个 token（`cid` 字段上报的就是它，
+		     它等于「能往这台设备推东西的钥匙」，见 lib/core/platform/push_token.dart） -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeDeviceID</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+	</array>
+	<!-- 「需要理由的 API」：只列**我们自己写的原生代码**用到的那几类。
+	     目前一条都没有 —— Runner/AppDelegate.swift 与 Runner/PlatformChannels.swift
+	     里只碰了 AVAudioSession / UNUserNotificationCenter / Bundle，
+	     都不在清单里。以后在那两个文件里加了 UserDefaults（CA92.1）、
+	     文件时间戳（C617.1）这类调用，必须回来补一条，否则上传时会被拒。 -->
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array/>
+</dict>
+</plist>
