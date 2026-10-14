@@ -212,6 +212,47 @@ jobs:
           fi
           exit "$status"
 
+      - name: 通话链自检（原生保活 + 真建连取麦克风）
+        # 为什么要有它：上一步只证明「起得来」，**一步都没走通话** —— 而 iOS 上
+        # 真正没底的是抖动最大的那两块：我们自己的 `gracelinkim/call_service`
+        # （Swift 的 AVAudioSession）与 flutter_webrtc 在 iOS 上的「建连 + 取麦克风」。
+        # 单测里媒体层永远是假的（`test/support/fake_call_media.dart`），只有设备能跑；
+        # 崩了就这里红，而不是等用户点接听才发现「闪退」
+        #（`call_media_smoke_test.dart` 的文件头记着安卓上真出现过的那个原生 NPE）。
+        #
+        # 三条各自报退出码，任何一条红这一步就红（`fails` 累加，最后 exit）。
+        run: |
+          set +e
+          # 无头模拟器上没人点系统权限框，先按包名把麦克风授出去；
+          # 授不了（老 Xcode 没这个子命令）不算错 —— 下面会如实打出取流结果。
+          xcrun simctl privacy "$SIM" grant microphone cc.gracelink.im || true
+          run_one() {
+            label="$1"; shift
+            echo ""
+            echo "=== $label ==="
+            flutter test "$@" 2>&1
+            code=$?
+            echo "[$label] 退出码=$code"
+            [ "$code" -ne 0 ] && fails=$((fails + 1))
+            return 0
+          }
+          (
+            set +e
+            fails=0
+            run_one "原生保活通道（我们自己的 Swift）" \
+              integration_test/ios_call_keep_alive_smoke_test.dart -d "$SIM"
+            run_one "真实建连 + 取麦克风（点接听那条路）" \
+              integration_test/call_media_smoke_test.dart -d "$SIM" --name 'mode=(minimal|site)'
+            echo ""
+            echo "通话链自检：失败 $fails 条"
+            exit "$fails"
+          ) 2>&1 | tee ios-call-smoke.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            bash tool/ci/annotate.sh "iOS 通话链自检挂了" ios-call-smoke.log 120
+          fi
+          exit "$status"
+
       - name: 截一张模拟器的图（失败时也能看出当时屏幕上是啥）
         # 用例跑完 App 会被收掉，所以这张**很可能是桌面**：它的用处是
         # 「红的时候能看一眼那时的模拟器状态」，不是当验收截图。
@@ -227,6 +268,7 @@ jobs:
           name: ios-smoke-log
           path: |
             ios-smoke.log
+            ios-call-smoke.log
             ios-simulator.png
           if-no-files-found: warn
 
