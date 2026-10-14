@@ -40,6 +40,9 @@ on:
       # 它不在列表里：改完这个文件，流水线一次都不会被叫醒。
       - 'analysis_options.yaml'
       - '.github/workflows/ios.yml'
+      # 注解脚本本身就是这条链的「眼睛」：它写坏了，红了也等于没红
+      # （2026-10-14 那 65535 字节的事就是这么被瞒过去的）。
+      - 'tool/ci/**'
 
 # 同一个 ref 上只留最新一次：真卡住时最烦的不是它白跑，是它占着队列位
 concurrency:
@@ -78,8 +81,15 @@ jobs:
 
       # ── 下面这里开始，每一处会红的步骤都把报错原文发成**公开注解** ────────────────
       # 为什么：日志要登录才能看（页面上那句 “Sign in for the full log view”），
-      # 而注解挂在 check run 上、匿名就能读。2026-10-14 的头两跑就是吃了这个亏 ——
+      # 而注解挂在 check run 上、匿名就能读。2026-10-14 的头几跑就是吃了这个亏 ——
       # 静态检查那 156 条、以及全量用例里挂掉的那 1 条，都只能靠人工登录 + 复制。
+      #
+      # 第四跑（a9e673f）又栽了一次，这次更阴：注解**发出来了、却看不全**。
+      # 正文在 `Fetching from …/libwebp-Xcod` 中间断掉，真正的报错一个字没有 ——
+      # GitHub 单条注解正文上限 65535 字节、超了从尾部砍，而 Xcode 拉 SwiftPM 依赖时
+      # 用 `\r` 原地刷进度、把上百次刷新折成了**一行**，那一行自己就吃掉几万字节。
+      # 于是现在 annotate.sh 不再搬「末尾 N 行」，而是**先挑失败现场**（`[E]` 那一行
+      # 就带着失败用例的名字），每行截 300 字、整条截 8000 字。
       # 搬运交给 tool/ci/annotate.sh（它自己验过、且永远以 0 退出）。
       # `set +e` 是必须的：GitHub 的默认 shell 是 `bash -e`，不然下面那句 tee
       # 一失败脚本就断了，轮不到注解；退出码在最后显式 exit 出去，门禁照旧生效。
@@ -99,7 +109,7 @@ jobs:
           flutter test 2>&1 | tee /tmp/test.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
-            bash tool/ci/annotate.sh "全量测试挂了（末尾 60 行）" /tmp/test.log 60
+            bash tool/ci/annotate.sh "全量测试挂了" /tmp/test.log 60
           fi
           exit "$status"
 
@@ -122,7 +132,7 @@ jobs:
             # 这里挂着的一定是 Swift / 工程配置的报错 —— 也就是这条流水线真正想问的事。
             # 行数放到 120：Flutter 失败时会把 `Error output from Xcode build:` 那一大段
             # 原样吐出来，而真正的第一行报错往往被后面的文档式输出推到很远。
-            bash tool/ci/annotate.sh "编译 iOS 挂了（末尾 120 行）" /tmp/build-ios.log 120
+            bash tool/ci/annotate.sh "编译 iOS 挂了" /tmp/build-ios.log 120
           fi
           exit "$status"
 
@@ -195,7 +205,7 @@ jobs:
           if [ "$status" -ne 0 ]; then
             # 行数特意放大：这条用例自己会打印 `[SMOKE] 落在=…` 这类线索行，
             # 而失败的堆栈会把它压到很远的地方 —— 60 行不够，120 行才稳。
-            bash tool/ci/annotate.sh "模拟器起不来（末尾 120 行）" ios-smoke.log 120
+            bash tool/ci/annotate.sh "模拟器起不来" ios-smoke.log 120
           fi
           exit "$status"
 
