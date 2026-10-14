@@ -82,13 +82,21 @@ jobs:
       - name: 单元测试（Dart 侧全量；iOS 那条链的守卫用例也在里面）
         run: flutter test
 
+      # ── 下面三步都带 `if: ${{ !cancelled() }}` ──────────────────────────────────
+      # 2026-10-14 加：**「能不能编」这个答案不该被前面的门禁挡住**。
+      # 第一次跑，静态检查挂了 → `flutter build ios` 连一次机会都没有；
+      # 第二次跑，全量用例里挂了 1 条 → 它又被跳过。而「一行 Swift 都没编译过」
+      # 正是这条流水线存在的理由 —— 门禁归门禁（红了就是红了），但答案要拿到。
+      # 用 `!cancelled()` 而不是 `always()`：被取消时不该再白烧十几分钟。
       - name: 编译 iOS（Release，不签名）
+        if: ${{ !cancelled() }}
         # 不签名照样能编：Flutter 这条命令会把 CODE_SIGNING_ALLOWED 关掉。
         # 拿到的东西装不到任何设备上（没有签名），但**编得过**这件事本身就是
         # 我们现在唯一能验的东西。
         run: flutter build ios --release --no-codesign
 
       - name: 看一眼产物（版本号与二进制）
+        if: ${{ !cancelled() }}
         # 这一条不只是自检：它把「Info.plist 里的版本号真的是 pubspec 那个」
         # 摆出来（两边接的是 FLUTTER_BUILD_NAME / FLUTTER_BUILD_NUMBER）。
         run: |
@@ -103,6 +111,7 @@ jobs:
           lipo -archs "$APP/Runner"
 
       - name: 核心那两块真的进包了
+        if: ${{ !cancelled() }}
         # 少一样就白编：App.framework 是 Dart 那一半，flutter_assets 是资源
         #（i18n / 通话铃声 / 图标）。体积为 0 或目录不存在都说明打歪了。
         run: |
