@@ -93,7 +93,16 @@ enum GracelinkPlatform {
   /// * `request` —— 差什么问一次；用户已经拒过的（系统不会再弹）回
   ///   `permanentlyDenied`，Dart 那边据此停止空跑、改成指路系统设置；
   /// * 不认识的名字回 `unsupported`（Dart 侧当「不需要」，绝不误拦）。
-  private static func handlePermissions(_ call: FlutterMethodCall, _ result: FlutterResult) {
+  ///
+  /// ⚠️ `result` 上的 `@escaping` 是必需的，不是修饰：这几条通道都是**异步回复**的
+  /// （权限框、通知设置页、`requestAuthorization` 的回调），而 Swift 里函数的闭包
+  /// 参数**默认非逃逸** —— 把非逃逸参数塞进逃逸闭包，编译器报
+  /// `Passing non-escaping parameter 'result' to function expecting an @escaping closure`。
+  /// 2026-10-14 的 iOS 首编就死在这一条上（AppDelegate.swift:106），而本机没有 Mac，
+  /// 只能等 CI 那台机器编一遍才知道 —— 下面四个带 `@escaping` 的地方是同一处病根。
+  private static func handlePermissions(
+    _ call: FlutterMethodCall, _ result: @escaping FlutterResult
+  ) {
     guard let arguments = call.arguments as? [String: Any],
           let names = arguments["names"] as? [String] else {
       result(FlutterError(code: "bad_args", message: "缺少 names", details: nil))
@@ -200,7 +209,9 @@ enum GracelinkPlatform {
 
   // MARK: 系统设置页（lib/core/platform/app_settings.dart / background_health.dart）
 
-  private static func handleAppSettings(_ call: FlutterMethodCall, _ result: FlutterResult) {
+  private static func handleAppSettings(
+    _ call: FlutterMethodCall, _ result: @escaping FlutterResult
+  ) {
     switch call.method {
     case "openAppSettings", "openNotificationSettings":
       // iOS 没有「本应用的通知设置」这种深链，能到的最深处就是本应用的设置页
@@ -234,7 +245,7 @@ enum GracelinkPlatform {
     }
   }
 
-  private static func openAppSettings(result: FlutterResult) {
+  private static func openAppSettings(result: @escaping FlutterResult) {
     guard let url = URL(string: UIApplication.openSettingsURLString) else {
       result(false)
       return
@@ -260,7 +271,9 @@ enum GracelinkPlatform {
   /// * 语音通话 → `.playAndRecord` + `.voiceChat`（回声消除那条路）
   /// * 视频通话 → 同一个分类 + `.videoChat`
   /// * 选项里带上蓝牙（耳机通话）与外放（视频通话默认外放，与安卓一致）
-  private static func handleCallService(_ call: FlutterMethodCall, _ result: FlutterResult) {
+  private static func handleCallService(
+    _ call: FlutterMethodCall, _ result: @escaping FlutterResult
+  ) {
     let arguments = call.arguments as? [String: Any] ?? [:]
     switch call.method {
     case "start":

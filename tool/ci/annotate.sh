@@ -50,7 +50,10 @@ fi
 # 失败长什么样 —— **分两级**，这一步很要紧：
 #
 # 一级（就是失败本身，命中就用它，不再看二级）：
-#   dart test    → `00:12 +2338 -1: <文件>: <用例名> [E]`   ← 用例名在这一行里
+#   dart test    → `::group::❌ <用例名> (failed)`          ← 用例名在这一行里
+#                  （CI 上 `dart test` 会自动切 GitHub 专用输出，失败块长这样；
+#                    本机用 `GITHUB_ACTIONS=true flutter test …` 能一模一样地复刻）
+#                  旧式紧凑输出则是 `00:12 +2338 -1: <文件>: <用例名> [E]`
 #   flutter analyze → `   error • 说明 • lib/x.dart:12:3 • undefined_name`
 #   Flutter 打 iOS → `Error (Xcode): …` / `Failed to build iOS app`
 #   xcodebuild   → `error: …` / `BUILD FAILED` / `The following build commands failed`
@@ -58,8 +61,8 @@ fi
 # 二级（一级没命中才用）：`Exception`、`Expected/Actual` 这类。为什么要分：
 # 本仓很多**通过**的用例也会打 `CallMediaException(...)` 这种调试行，全绿的那份日志里
 # 一抓一大把 —— 混在一起挑，它们会先把 8000 字额度吃光，把 [E] 那行挤到正文之外。
-primary='\[E\]|Error \(Xcode\)|error •|Some tests failed|Failed to build (iOS|macOS) app|BUILD FAILED|The following build commands failed|error: '
-secondary='Exception|Expected:|Actual:|Error: |warning •|\[SMOKE\]|[0-9]+ tests? failed|Failed to'
+primary='❌|\[E\]|Error \(Xcode\)|error •|Some tests failed|Failed to build (iOS|macOS) app|BUILD FAILED|The following build commands failed|error: '
+secondary='Exception|Expected:|Actual:|warning •|\[SMOKE\]|[0-9]+ tests? failed|Failed to'
 
 # 挑中一行，就把它后面 10 行也带上（堆栈/原因就在那几行里）。最多 60 处命中。
 pick() { grep -a -n -E -A 10 -m 60 "$1" "$file" 2>/dev/null | head -n 300; }
