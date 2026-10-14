@@ -239,7 +239,14 @@ String? findSignTool(
     final candidates = <String, String>{};
     for (final entry in dir.listSync()) {
       if (entry is! Directory) continue;
-      final exe = File('${entry.path}\\x64\\signtool.exe');
+      // 用 pathSeparator 拼，别写死 `\x64\`：entry.path 在 macOS 那边是
+      // `/var/…/10.0.26100.0`，拼上反斜杠之后整串会被当成**一个文件名**，
+      // 于是永远 existsSync()==false、回 null。Windows 上混用分隔符反而照样能过 ——
+      // 2026-10-14 的 iOS 首绿就差这一条：全量用例里唯一挂的就是它
+      // （`test/release/signing_test.dart` 的「10.0.9 > 10.0.10 那种要比数字」）。
+      final exe = File(
+        <String>[entry.path, 'x64', 'signtool.exe'].join(Platform.pathSeparator),
+      );
       if (!exe.existsSync()) continue;
       candidates[entry.path.split(RegExp(r'[\\/]')).last] = exe.path;
     }
