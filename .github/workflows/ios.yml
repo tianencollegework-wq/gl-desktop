@@ -76,11 +76,32 @@ jobs:
       - name: 取依赖
         run: flutter pub get
 
+      # ── 下面这里开始，每一处会红的步骤都把报错原文发成**公开注解** ────────────────
+      # 为什么：日志要登录才能看（页面上那句 “Sign in for the full log view”），
+      # 而注解挂在 check run 上、匿名就能读。2026-10-14 的头两跑就是吃了这个亏 ——
+      # 静态检查那 156 条、以及全量用例里挂掉的那 1 条，都只能靠人工登录 + 复制。
+      # 搬运交给 tool/ci/annotate.sh（它自己验过、且永远以 0 退出）。
+      # `set +e` 是必须的：GitHub 的默认 shell 是 `bash -e`，不然下面那句 tee
+      # 一失败脚本就断了，轮不到注解；退出码在最后显式 exit 出去，门禁照旧生效。
       - name: 静态检查（Dart 侧，与本地同一条）
-        run: flutter analyze
+        run: |
+          set +e
+          flutter analyze 2>&1 | tee /tmp/analyze.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            bash tool/ci/annotate.sh "静态检查挂了" /tmp/analyze.log 30
+          fi
+          exit "$status"
 
       - name: 单元测试（Dart 侧全量；iOS 那条链的守卫用例也在里面）
-        run: flutter test
+        run: |
+          set +e
+          flutter test 2>&1 | tee /tmp/test.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            bash tool/ci/annotate.sh "全量测试挂了（末尾 40 行）" /tmp/test.log 40
+          fi
+          exit "$status"
 
       # ── 下面三步都带 `if: ${{ !cancelled() }}` ──────────────────────────────────
       # 2026-10-14 加：**「能不能编」这个答案不该被前面的门禁挡住**。
@@ -93,7 +114,15 @@ jobs:
         # 不签名照样能编：Flutter 这条命令会把 CODE_SIGNING_ALLOWED 关掉。
         # 拿到的东西装不到任何设备上（没有签名），但**编得过**这件事本身就是
         # 我们现在唯一能验的东西。
-        run: flutter build ios --release --no-codesign
+        run: |
+          set +e
+          flutter build ios --release --no-codesign 2>&1 | tee /tmp/build-ios.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            # 这里挂着的一定是 Swift / 工程配置的报错 —— 也就是这条流水线真正想问的事
+            bash tool/ci/annotate.sh "编译 iOS 挂了（末尾 40 行）" /tmp/build-ios.log 40
+          fi
+          exit "$status"
 
       - name: 看一眼产物（版本号与二进制）
         if: ${{ !cancelled() }}
@@ -158,8 +187,13 @@ jobs:
         # 这条用例与 macOS 那条是**同一个文件**：判据用的是类型而不是文案，
         # 所以英文系统 / 干净设备上都成立（见它自己的注释）。
         run: |
-          set -o pipefail
+          set +e
           flutter test integration_test/boot_smoke_test.dart -d "$SIM" 2>&1 | tee ios-smoke.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            bash tool/ci/annotate.sh "模拟器起不来（末尾 40 行）" ios-smoke.log 40
+          fi
+          exit "$status"
 
       - name: 截一张模拟器的图（失败时也能看出当时屏幕上是啥）
         # 用例跑完 App 会被收掉，所以这张**很可能是桌面**：它的用处是
