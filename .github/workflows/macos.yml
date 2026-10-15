@@ -59,8 +59,35 @@ jobs:
         # 和「Flutter 默认给的是不是本地签名」都列进「没验过」了，这里就是答案。
         run: |
           APP="build/macos/Build/Products/Release/Gracelink.app"
-          echo "--- 架构 ---"
+          echo "--- 架构（主二进制）---"
           lipo -archs "$APP/Contents/MacOS/Gracelink"
+
+          # 上面那行只说了宿主可执行文件。**光看它不能说「Intel 也能用」**：
+          # 决定一个包能不能在 Intel 上跑的是包内**每一个** Mach-O ——
+          # 内嵌的 framework、插件的 .bundle、dylib、helper，任何一个只出 arm64，
+          # 整个包就只能在 Apple Silicon 上跑（Intel 机器上双击是「已损坏」那种死法）。
+          # 所以这里把每个 Mach-O 都 lipo 一遍，把分布和结论直接打在日志里。
+          echo "--- 架构（包内每个 Mach-O）---"
+          find "$APP" -type f -print0 | while IFS= read -r -d '' f; do
+            case "$(file -b "$f")" in
+              *Mach-O*) printf '%s\t%s\n' "$(lipo -archs "$f" 2>/dev/null)" "${f#"$APP"/}" ;;
+            esac
+          done | sort | tee /tmp/machos.txt
+
+          echo "--- 架构小结 ---"
+          total=$(grep -c . /tmp/machos.txt || true)
+          both=$(grep -cE 'x86_64.*arm64|arm64.*x86_64' /tmp/machos.txt || true)
+          echo "包内 Mach-O 共 $total 个，其中 x86_64+arm64 双架构 $both 个"
+          # 「一个都没找到」和「找到了但有单架构」必须分开说：
+          # 不分开的话，哪天产物路径变了、这里扫了个空，日志看上去还算出个结论 —— 那比报错更坏。
+          if [ "$total" = "0" ]; then
+            echo "结论：一个 Mach-O 都没扫到 —— 这段自己坏了（产物路径变了吗？），别当结论用"
+          elif [ "$total" = "$both" ]; then
+            echo "结论：全部通吃 → 这个包在 Intel 与 Apple Silicon 上都能跑"
+          else
+            echo "结论：有 Mach-O 只出单架构 → 别对外说「Intel 也能用」（就是上面单架构那几行）"
+          fi
+
           echo "--- 签名 ---"
           codesign -dv --verbose=2 "$APP" 2>&1 | head -20 || true
           echo "--- 版本号 ---"
