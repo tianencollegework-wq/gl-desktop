@@ -204,47 +204,41 @@ jobs:
           xcrun simctl boot "$UDID" || true
           xcrun simctl list devices | grep "$UDID"
 
-      - name: 真启动一次（跑到登录页就算过）
-        # 单步上限：用例自己 3 分钟就判死，真正占时间的是「装包 + 起模拟器」。
-        # 给它一层壳，卡住时红在这一步，而不是把后面通话自检的时间吃光。
-        timeout-minutes: 18
-        # `set -o pipefail`：不加的话 tee 成功就整体算成功，测试红了也当绿的。
-        # 这条用例与 macOS 那条是**同一个文件**：判据用的是类型而不是文案，
-        # 所以英文系统 / 干净设备上都成立（见它自己的注释）。
-        run: |
-          set +e
-          flutter test integration_test/boot_smoke_test.dart -d "$SIM" 2>&1 | tee ios-smoke.log
-          status=${PIPESTATUS[0]}
-          if [ "$status" -ne 0 ]; then
-            # 行数特意放大：这条用例自己会打印 `[SMOKE] 落在=…` 这类线索行，
-            # 而失败的堆栈会把它压到很远的地方 —— 60 行不够，120 行才稳。
-            bash tool/ci/annotate.sh "模拟器起不来" ios-smoke.log 120
-          fi
-          exit "$status"
-
+      # ── 下面两步的顺序与上限是量出来的，别随意调 ─────────────────────────────
+      # 第十跑（0341367）两个都红，而两条注解说的都不是我们的代码：
+      #   * `The action '真启动一次（跑到登录页就算过）' has timed out after 18 minutes`
+      #     —— 这台 runner 上「装包 + 起 App」本身就慢到 18 分钟还不够；
+      #   * 接着通话自检连 DDS 都起不来（`Failed to start Dart Development Service`）
+      #     —— 被砍掉的那一步把模拟器留在了坏状态里。
+      # 所以：① 通话自检**提到最前**（它是这条链真正想问的事，不该被别人的超时连累）；
+      #       ② 每条用例**跑之前先 kill_all**，清掉上一条的残留；
+      #       ③ 两条都 `!cancelled()`：一条红不给另一条下结论。
       - name: 通话链自检（原生保活 + 真建连取麦克风）
-        # `!cancelled()` 而不是默认的「前面绿了才跑」：通话是这条链真正想问的事，
-        # 上一跑的「启动自检」卡死就把它整步跳过了 —— 「起得来」红了不代表
-        # 「通话链」不能单独结论（两者失败原因完全不同）。被取消时依然不跑。
+        # `!cancelled()`：两条自检互相独立 —— 「起得来」红了不代表通话链不能
+        # 单独下结论（失败原因完全不同）。被取消时依然不跑。
         if: ${{ !cancelled() }}
         timeout-minutes: 28
-        # 为什么要有它：上一步只证明「起得来」，**一步都没走通话** —— 而 iOS 上
+        # 为什么要有它：启动自检只证明「起得来」，**一步都没走通话** —— 而 iOS 上
         # 真正没底的是抖动最大的那两块：我们自己的 `gracelinkim/call_service`
         # （Swift 的 AVAudioSession）与 flutter_webrtc 在 iOS 上的「建连 + 取麦克风」。
         # 单测里媒体层永远是假的（`test/support/fake_call_media.dart`），只有设备能跑；
         # 崩了就这里红，而不是等用户点接听才发现「闪退」
         #（`call_media_smoke_test.dart` 的文件头记着安卓上真出现过的那个原生 NPE）。
         #
-        # 三条各自报退出码，任何一条红这一步就红（`fails` 累加，最后 exit）。
+        # 每条各自报退出码，任何一条红这一步就红（`fails` 累加，最后 exit）。
         run: |
           set +e
           # 无头模拟器上没人点系统权限框，先按包名把麦克风授出去；
-          # 授不了（老 Xcode 没这个子命令）不算错 —— 下面会如实打出取流结果。
+          # 授不了（老 Xcode 没这个子命令）不算错 —— 用例自己会如实打出设备情况。
           xcrun simctl privacy "$SIM" grant microphone cc.gracelink.im || true
           run_one() {
             label="$1"; shift
             echo ""
             echo "=== $label ==="
+            # 上一条用例的 App / 调试连接可能还挂在模拟器里，清干净再上
+            xcrun simctl terminate "$SIM" cc.gracelink.im >/dev/null 2>&1 || true
+            xcrun simctl shutdown "$SIM" >/dev/null 2>&1 || true
+            xcrun simctl boot "$SIM" >/dev/null 2>&1 || true
             flutter test "$@" 2>&1
             code=$?
             echo "[$label] 退出码=$code"
@@ -269,6 +263,31 @@ jobs:
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
             bash tool/ci/annotate.sh "iOS 通话链自检挂了" ios-call-smoke.log 120
+          fi
+          exit "$status"
+
+      - name: 真启动一次（跑到登录页就算过）
+        # 放通话自检后面：它是整条链里最慢的一步（装包 + 起 App），
+        # 而「通话行不行」比「起得来」更值得先拿到结论。
+        if: ${{ !cancelled() }}
+        # 单步上限：用例自己 3 分钟就判死，真正占时间的是「装包 + 起 App」。
+        # 第十跑这台 runner 上 18 分钟都不够（注解原文就是 18 分钟超时），
+        # 抬到 25 —— 真卡死时仍会被砍，但正常慢机器不再冤枉。
+        timeout-minutes: 25
+        # `set -o pipefail`：不加的话 tee 成功就整体算成功，测试红了也当绿的。
+        # 这条用例与 macOS 那条是**同一个文件**：判据用的是类型而不是文案，
+        # 所以英文系统 / 干净设备上都成立（见它自己的注释）。
+        run: |
+          set +e
+          xcrun simctl terminate "$SIM" cc.gracelink.im >/dev/null 2>&1 || true
+          xcrun simctl shutdown "$SIM" >/dev/null 2>&1 || true
+          xcrun simctl boot "$SIM" >/dev/null 2>&1 || true
+          flutter test integration_test/boot_smoke_test.dart -d "$SIM" 2>&1 | tee ios-smoke.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            # 行数特意放大：这条用例自己会打印 `[SMOKE] 落在=…` 这类线索行，
+            # 而失败的堆栈会把它压到很远的地方 —— 60 行不够，120 行才稳。
+            bash tool/ci/annotate.sh "模拟器起不来" ios-smoke.log 120
           fi
           exit "$status"
 
