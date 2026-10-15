@@ -72,20 +72,36 @@ jobs:
           channel: stable
           cache: true
 
-      - name: 凭据齐了没有（缺哪个就说哪个，别让人猜）
+      - name: 凭据齐了没有（缺哪个就说哪个；顺手去掉粘进来的空白）
         # 没配就**当场红**并说清要加哪四个 —— 这条流水线是手动点的，
-        # 点了没反应比红了更让人抓瞎。这里只报名字，不回显任何值。
+        # 点了没反应比红了更让人抓瞎。这里只报名字与**长度**，不回显任何值。
+        #
+        # 为什么要 trim：Secret 在网页上是个多行输入框，粘进去的值很容易带一个
+        # 结尾换行/空格。账号带空白就是「登录失败」，而对端 id 带空白更阴 ——
+        # 信令发给一个不存在的用户，表现是「等 75 秒自己超时」，看不出是空白干的。
+        # 所以先统一裁一遍，再把裁过的写回环境给后面的步骤用。
         run: |
+          trim() { printf '%s' "$1" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'; }
+          account=$(trim "$LIVE_ACCOUNT")
+          password=$(trim "$LIVE_PASSWORD")
+          peer=$(trim "$LIVE_PEER_ID")
+          name=$(trim "$LIVE_PEER_NAME")
           missing=""
-          [ -n "$LIVE_ACCOUNT" ]   || missing="$missing LIVE_TEST_ACCOUNT"
-          [ -n "$LIVE_PASSWORD" ]  || missing="$missing LIVE_TEST_PASSWORD"
-          [ -n "$LIVE_PEER_ID" ]   || missing="$missing LIVE_CALLEE_ID"
-          [ -n "$LIVE_PEER_NAME" ] || missing="$missing LIVE_CALLEE_NAME"
+          [ -n "$account" ]  || missing="$missing LIVE_TEST_ACCOUNT"
+          [ -n "$password" ] || missing="$missing LIVE_TEST_PASSWORD"
+          [ -n "$peer" ]     || missing="$missing LIVE_CALLEE_ID"
+          [ -n "$name" ]     || missing="$missing LIVE_CALLEE_NAME"
           if [ -n "$missing" ]; then
             echo "::error::仓库 Secrets 里还缺：$missing —— Settings › Secrets and variables › Actions 里加上再点一次"
             exit 1
           fi
-          echo "四个 Secrets 都在（值不回显）"
+          {
+            echo "LIVE_ACCOUNT=$account"
+            echo "LIVE_PASSWORD=$password"
+            echo "LIVE_PEER_ID=$peer"
+            echo "LIVE_PEER_NAME=$name"
+          } >> "$GITHUB_ENV"
+          echo "四个 Secrets 都在。长度：账号 ${#account} / 密码 ${#password} / 对端 id ${#peer} / 对端名 ${#name}"
 
       - name: 取依赖
         run: flutter pub get
@@ -144,8 +160,8 @@ jobs:
             --dart-define=LIVE_PASSWORD="$LIVE_PASSWORD" \
             --dart-define=LIVE_PEER_ID="$LIVE_PEER_ID" \
             --dart-define=LIVE_PEER_NAME="$LIVE_PEER_NAME" \
-            --dart-define=LIVE_VIDEO="${{ inputs.video == 'yes' }}" \
-            --dart-define=LIVE_READY_SECONDS="${{ inputs.ready_seconds }}" \
+            --dart-define=LIVE_VIDEO="${{ (inputs.video || 'no') == 'yes' }}" \
+            --dart-define=LIVE_READY_SECONDS="${{ inputs.ready_seconds || '45' }}" \
             2>&1 | tee live-call.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
