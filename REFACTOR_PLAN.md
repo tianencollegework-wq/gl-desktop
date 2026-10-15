@@ -1633,8 +1633,8 @@ S4.6 新增 21 个（共 361 个）：`test/chat/file_preview_test.dart`（后�
 
 **还没在真实两机通话里验过的那件事**：真通话中切后台/锁屏要你打一通电话看一眼（见下方清单）。
 
-**S6.5 还没做的**：iOS（`UIBackgroundModes: audio` + `audio_session` voiceChat，与 S6.4 一起）、
-电池优化白名单/自启动引导（降低国产 ROM 清理概率）、锁屏来电（S6.6）。
+**S6.5 还没做的**：iOS 那条**代码已经写好了**（见 S12.43：`UIBackgroundModes: audio` + `AppDelegate` 里激活 `AVAudioSession` + `IosCallKeepAlive`，
+**一行都没编译过**）、电池优化白名单/自启动引导（降低国产 ROM 清理概率）、锁屏来电（S6.6）。
 
 ---
 
@@ -2296,8 +2296,9 @@ FCM 先做，是因为它文档最好、调试最容易，用它把**整条架�
 3. **登出不解绑设备**（P2）：登出后这台设备仍会收到推送；要修就得把设备标识也带上登出请求；
 4. **国内 ROM**：FCM 覆盖不到没装 Google 服务的机器，仍然要靠个推/厂商通道
    （客户端只需加一个 `PushTokenSource` 实现，后端加一个 `PushProvider` 实现）；
-5. **iOS**：客户端这套已经按平台写好了（FCM 也能代发 APNs），缺的是 `UIBackgroundModes`
-   与 Apple 后台的 APNs Key。
+5. **iOS**：客户端这套已经按平台写好了（FCM 也能代发 APNs），`UIBackgroundModes`
+   （`audio` + `remote-notification`）与推送到权限已经在 S12.43 里落地；
+   现在缺的是 Apple 后台的 APNs Key + Firebase 里那个 iOS 应用（要开发者账号）。
 
 #### S8.1e 热修：开了 ENABLE 之后消息不实时、通知消失（2026-09-20）
 
@@ -3415,7 +3416,8 @@ release 包已重建并 `adb install -r` 装机（保留登录态）。
   这句话还写着「未开启」。有的 ROM 是弹框不是跳页，所以点完也补查一次。
 - 与「通话保活通知」那一行的分工：那一行是**通话期间**要的那条常驻通知；
   这一行是「系统到底允不允许我们弹通知」，两者查同一件事但入口/目的不同，各留一行。
-- 只有安卓画这一行（iOS 走系统设置，另说）。
+- ~~只有安卓画这一行（iOS 走系统设置，另说）~~ → **iOS 现在也画**（S12.43）：点一下跳本应用的设置页
+  （苹果没有「本应用的通知设置」那种深链），所以这一行在 iPhone 上同样成立。
 
 **二、声音 / 震动的默认值改成微信那套**（`data/model/app_setting.dart`）：
 
@@ -9818,3 +9820,458 @@ adb logcat -d | grep -E '启动\]|通知\]|路由\]'
 
 1. 顺手可做的下一格：站点后台若真有 TURN，写全 `turn:主机:端口`（页面现在会把这种写法看得出来）。
 2. 桌面上点一下「设置 → 音视频通话」确认观感（一行白底 + 右值，点开是那张弹层窗口）。
+
+---
+
+## S12.43 iOS 版开工：工程配置 + 四条平台通道 + Dart 侧分支（2026-10-14）
+
+#### 一、背景（用户原话）
+
+> 我圣诞节买开发者账号，我也没有苹果手机给你真机调试，也没有苹果电脑，
+> 不过 iOS 代码层面你先完善一下，之前很多功能都还没适配。
+
+三个约束定下了这一轮的形状：**12 月之前没有账号**（签不了名、上不了 TestFlight）、
+**没有 iPhone**（真机行为一律验不了）、**没有 Mac**（连编都编不了）。
+所以这一轮只做「代码层面先完善」，并且把**能验的东西**尽量留在本机（配置守卫用例）
+与 CI（macOS runner 上编包 + 模拟器真启动）。计划书与没验过的清单见
+`docs/release/ios-plan.md`。
+
+#### 二、做了什么
+
+1. **`tool/audit/ios_support.js`（新）**：与 `macos_support.js` 同一个套路，读 pub 缓存列出
+   每个依赖的 iOS 支持与**它要求的最低 iOS 版本**。跑出来的第一件事就值回票价：
+   `firebase_core` / `firebase_messaging` 要 **iOS 15.0**，而模板留的是 13.0 ——
+   这个错在 Xcode 上要等到第一次编译才报（本机永远看不到）。
+   结论：**最低系统 13.0 → 15.0**（放弃 iPhone 6s/7 那几代，那几代停在 15.8，其实仍在支持内）。
+2. **工程配置**（`ios/`）：五条权限文案（相机/麦克风/相册读/相册写/本地网络）、
+   `UIBackgroundModes = audio + remote-notification`（**故意不给 `voip`**：那是 PushKit 的，
+   声明了却不用，审核会问「你要它干什么」，做 CallKit 时再一起加）、
+   `ITSAppUsesNonExemptEncryption = false`、七种语言的 `CFBundleLocalizations`
+   （iOS **只看这里**，不看 pubspec）、`NSAllowsLocalNetworking`（开发联调用 http）、
+   `tel` + `app-settings` 进 `LSApplicationQueriesSchemes`。
+   新增 `Runner.entitlements`（`aps-environment`，三份构建配置都接上）与
+   `PrivacyInfo.xcprivacy`（上传 App Store 必须的那份）；包名从 `com.example.gracelinkim`
+   改成 **`cc.gracelink.im`**（与 macOS 同一个 App ID，一张票两个平台）。
+   ⚠️ 隐私清单**光放文件不会进包**（Xcode 只打包被引用且在某一个 build phase 里的文件），
+   所以 `project.pbxproj` 里把四处引用都接上了（PBXBuildFile / PBXFileReference /
+   group children / Resources 那一相），并由守卫用例钉住 —— 一个“看着做好了、其实没进包”
+   的文件正是这个仓库最想防的那种错。
+3. **原生侧**（`ios/Runner/AppDelegate.swift`，**没有动工程文件**）：补上四条通道的 iOS 实现 ——
+   `app_info.version`、`permissions.check/request`（摄像头/麦克风/通知，与安卓同一套语义）、
+   `app_settings`（通知权限 + 跳本应用设置页；电池那两条如实回「iOS 没有这个东西」）、
+   `call_service`（按语音/视频设 `playAndRecord` + `voiceChat`/`videoChat` 并激活，
+   结束时关掉并把音乐还回去）。
+   通道挂在 `engineBridge.applicationRegistrar` 上（引擎专门给「应用级通道」留的那条路，
+   不是借插件的注册表）。**全挤在一个文件里是刻意的**：iOS 多一个 `.swift` 就要改
+   `project.pbxproj`（多三处引用），而本机没有 Xcode，改坏一个字符的代价是「工程打不开」。
+4. **Dart 侧**：`IosCallKeepAlive`（同一条通道，另一个机制：**激活音频会话**而不是起服务；
+   不用轮询确认、不编通知文案、投屏是空操作）与 `IosBackgroundHealth`（只有通知权限那一道是真的
+   → 会话列表那条红提示条与「设置 › 通知」那一行在 iPhone 上同样成立）。
+   顺手把「通话保活通知」那一行改成按**平台**判（那条常驻通知是安卓独有的，
+   iOS 的保活不产生任何通知），自检面板的说明也按平台分开写。
+5. **守卫用例**（`test/core/ios_runner_test.dart`，16 条）：把上面每一条配置都钉住 ——
+   权限文案一条不能少、后台模式不能多也不能少、包名不许留 `com.example`、最低系统 ≥ 15.0、
+   **每条通道的每个方法名都要与 Dart 侧对得上**（对不上就是「功能静默消失」），
+   还加了一条「Dart 侧新加的通道必须说清 iOS 上谁来实现」（以后加通道时会红，逼着先想一遍）。
+6. **应用图标与启动图**（`tool/icons/make_ios_icons.js`，新）：模板里那 15 张图标是
+   **Flutter 自己的青色标**，启动图是三张 **1×1 的空图**。现在图标从与安卓/macOS
+   **同一个源图**生成（满幅 + **不带 alpha 通道** —— 苹果会拒透明图标，源图四角带透明，
+   用同色底座铺平），启动图从应用内那张 logo 生成（168/336/504，与启动页那 180 的方块接得上）。
+   脚本自带验收：尺寸、有没有 alpha、四角颜色，当场对一遍。
+7. **CI**（`.github/workflows/ios.yml`，新）：macOS runner 上 `flutter build ios --release --no-codesign`
+   + 模拟器真启动一次（`integration_test/boot_smoke_test.dart`，与 macOS 那条同一个用例）
+   + 截图与日志当产物。**全都不需要开发者账号** —— 这是「没有 Mac」这件事的解法。
+
+#### 三、验过 / 没验
+
+* 验过：`flutter analyze` **No issues**；全量 `flutter test` **2332 条全过、1 跳过**（EXIT=0）。
+* 验过（新增用例）：`test/core/ios_runner_test.dart` 19 条（配置守卫 + 隐私清单的工程引用 +
+  图标像素对账 + 通道方法名对账）；
+  `call_keep_alive_test.dart` 加了 6 条 iOS 契约（只发 video、不轮询、会话起不来收成
+  `CallKeepAliveException`、旧包的 `MissingPluginException` 也收成同一个异常、投屏空操作）；
+  `background_health_test.dart` 加了 3 条（通知权限照实读、电池那条恒 true、iOS 上不存在的两个动作回 false）。
+* 没验（照实记，全部写进了 `docs/release/ios-plan.md` 第十一节）：**Swift 一行都没编译过**、
+  `ios/` 的改动**没在 Xcode 里打开过**（pbxproj 是脚本改的，只做了括号配平与值替换计数）、
+  **没有任何 iOS 设备或模拟器跑过**、CI 那条工作流本身也没跑过（本地推不了）。
+* 顺带记一个踩过的坑：Dart 里 `'\s'` 这种**非 raw 字符串**会把反斜杠吃掉（`\s*` 变成 `s*`），
+  正则于是去找一个真的字母 s，而且**不报错** —— 断言只会莫名其妙地拿到 null。
+  这批用例里正则一律写成 `r'...'`。
+
+#### 四、接下来
+
+1. **推仓库 → 手点一次 `iOS 构建与自检`**，把 CI 跑绿（不需要账号，也不需要做任何 iOS 决定）。
+   在没验证的地基上继续加 Swift，只会把「一次修十个错」变成「一次修三十个」。
+2. 12 月买号之后的五步（建 App ID 并勾推送 → Xcode 自动签名 → Firebase 加 iOS 应用 + APNs Key →
+   跑绿 CI → 出 TestFlight）写在 `docs/release/ios-plan.md` 第三节。
+3. 然后才是真正缺的那一块：**CallKit + PushKit 来电界面**（iOS 上锁屏来电目前只能是一条普通通知；
+   而要让进程被划掉以后还能被叫醒，只有 VoIP 推送这条路，它必须和 CallKit 一起做）。
+
+---
+
+## S12.45 通话「中转这条路」自检：TURN 到底有没有在承载媒体（2026-10-15）
+
+#### 一、为什么还要做这一条
+
+风险登记第 1 条（P2P 打不通）的答案是 TURN：**两边都躲在对称 NAT / 运营商大内网
+后面时，直连（host / srflx）根本没有一条路可用**。到昨天为止它有两层已被证明的部分：
+
+* `test/call/turn_credentials_test.dart`：凭据的解析与缓存（纯逻辑，跑得飞快）；
+* 服务端真的在签发 —— 今天用 curl 当场复看了一遍（`POST /enterprise/im/turnCredentials`，
+  带令牌返回 `stun:` 两条 + **带账号的 `turn:` 六条**，`expiresIn=86400`；不带令牌是
+  `请先登录系统`）。
+
+缺的是**最后一格**：媒体有没有真的从那条中转上过去。这不是小事 —— 域名被墙、
+TURN 端口被封、凭据被拒、插件不认 `urls` 是数组，任何一条都会让「有 TURN 凭据」
+变成一句空话，而**单测与 curl 一个都测不到**。而这件事又恰好不能靠
+`live_call_dial_smoke_test.dart` 来验：那条要电话那头有个真人。
+
+#### 二、做法：两个端点在同一个进程里，且**只许走中转**
+
+新用例 `integration_test/call_relay_smoke_test.dart`（三条）：
+
+1. **凭据**：走生产路径（登录 → `turnCredentialServiceProvider`）取凭据，
+   空列表或没有带账号的 `turn:` 条目**当场红**（那正是「有的朋友打不通」）；
+2. **中转**：建**两条** `RTCPeerConnection`（`iceTransportPolicy: 'relay'`），
+   SDP 与候选**本地交换** —— 所以它一个真人也用不着。判据四条，缺一不可：
+   * 收集到的候选**全部**是 `typ relay`（有一条不是就说明插件忽略了那条策略，
+     这一跑什么都没证明 → 红）；
+   * 两侧真的进入 `connected`；
+   * 数据通道 ping → pong 走通（**这才是「有字节真的过去了」**；
+     连接状态只说明 ICE 谈成了）；
+   * 统计里选中那一对是 `relay → relay`（`getStats` 给不全就**明确跳过**，
+     不假装）。
+3. **音频**：两侧都挂同一只麦克风，判据是**双向字节都在动**（轨道到了 ≠ 声音在传 ——
+   「接通了但听不到声音」正是这个）。没有输入设备就**明确跳过**，与
+   `ios_call_media_smoke_test.dart` 同一套口径。
+
+#### 三、证据（Windows 真机，2026-10-15）
+
+```
+[RELAY] 服务端给了 2 条：（无账号）stun:stun.cloudflare.com:3478 | …443
+[RELAY]   · （账号 64 位）turn:turn.cloudflare.com:3478?transport=udp | …turns:…:443?transport=tcp
+[RELAY] 候选[relay] candidate:… udp 8331263 104.30.145.19 65232   ← 八条，全是 relay
+[RELAY] 两侧都进入 connected（用时约 503ms）
+[RELAY] 数据通道来回一趟 ✓（291ms）
+[RELAY] 统计：CallMediaSample(rtt=41ms, pair=relay→relay/, sent=0, recv=0, …)
+[RELAY] 音频输入设备：0 个（这台机器没有 → 跳过取流）
+```
+
+**一条直连候选都没有**，选中那一对是 `relay→relay`，中转到连上 503ms、
+数据一个来回 291ms —— 中转这条路的媒体面到此为止是**被证明过的**，而不是
+「服务端配了密钥」。
+
+#### 四、CI
+
+`.github/workflows/ios-live-call.yml` 里加了一步，排在**拨号之前**：
+
+* 它要账号（TURN 凭据要登录态），所以只能待在带 Secrets 的那条流水线里；
+  放进 `ios.yml` 只会变成一条永远 SKIP 的步骤；
+* 但它**不需要人接**，所以顺手加了 `relay_only = yes` 这个入口 ——
+  想只验中转、不响任何人手机就选它（拨号那一步会跳过）；
+* runner 的模拟器**是有麦克风**的（`docs/release/ios-plan.md` 第八节那张表里
+  `音频输入设备：1 个` → `取流 OK tracks=1`），所以第 3 条（音频）在 CI 上会真的跑起来。
+
+#### 五、验过 / 没验
+
+* 验过：`flutter analyze` **No issues**；新用例在 Windows 真机上
+  **3 passed**（第 3 条按设计跳过：这台机器没有输入设备）；
+  `test/call/` 那批 **282 条全过**（TURN 那一层没被动过，回归确认）。
+* 没验：**iOS 模拟器上还没跑过**（本地推不了，等你点一次 `iOS 真拨一通`
+  —— 选 `relay_only = yes` 即可，`relay.log` 会作为产物传上来）；
+  真机（iPhone）上的同一条也还没跑（要有账号 + 一台 iPhone）。
+* 顺带一句：这一条**不**证明苹果独有的那几样（锁屏来电 / 划掉 App 后的唤醒 /
+  后台不断线），那些仍然要 CallKit + PushKit + 真机。
+
+---
+
+## S12.46 iOS 系统来电界面（CallKit + PushKit）接线（2026-10-15）
+
+#### 一、为什么做这一条
+
+`docs/release/ios-plan.md` 第六节第 2 项，也是 iOS 上唯一还「缺一大块」的地方：
+
+* 安卓那条来电体验是**我们自己画的**（全屏通知 + `setShowWhenLocked` + `CallForegroundService`），
+  只要进程活着就没问题；iPhone 上**锁屏来电是系统的东西**，只有 CallKit 能画；
+* 更要紧的是**被划掉之后还能被叫醒**：苹果的硬限制是「用户上滑划掉 App 之后，普通推送
+  （含静默推送）不再唤醒它」，唯一例外是 **VoIP 推送（PushKit）** —— 而它要求你必须接
+  CallKit，所以这两件事只能一起做。
+
+所以这一轮的目标是「**接线**」：把「有一通来电」这件事交给系统那侧，把系统那侧的动作
+（接听 / 挂断）接回我们这套状态机。**不是**「让 iPhone 上现在就弹出来」—— 那还差服务端
+一条 VoIP 推送与一把 VoIP 证书（下面第四节）。
+
+#### 二、做了什么
+
+**Dart 侧**
+
+* `lib/core/platform/callkit.dart`（新）：接口 `CallKit`（`supported` / `isAvailable` /
+  `reportIncomingCall` / `reportEnded` / `takePendingCall` / `voipToken` / `lastError` /
+  动作监听表）+ `IosCallKit` + `NoopCallKit`，provider 按平台分流。所有平台调用都收成
+  「失败回一条原因 / 空值」，不让通道上的意外带倒整条链。
+* `lib/features/call/call_push_host.dart`（改）：**「什么时候交给系统、什么时候收回来」
+  那套判断**都在这里 —— 判据只有一条「App 不在屏幕上」：不看屏幕就报（那时我们自己
+  那张通话页用户看不到），**前台不报**（再叠一层系统界面 = 同一通响两次、两个接听键）；
+  同一通只报一次（拿 `messageId` 去重，报两次在锁屏上就是两条一模一样的来电）；
+  一旦不再活跃（接听 / 挂断 / 超时 / 被换成另一通）→ `reportEnded` 收尾 ——
+  不收的话锁屏上那个界面会一直挂着，用户以为对方还在打。
+* 系统那侧按接听 / 挂断 → 回到 `CallController.accept()` / `hangup()`：
+  **接电话的是状态机**（发 `acceptRtc`、取麦克风、建连），原生只管那个界面。
+* 修掉一个真 bug：监听原先在 `initState` 里挂一次，而 `callControllerProvider` **会随
+  登录 / 登出重建** —— 挂在旧实例上的监听从此再也不会响，现象是「登录之后收到来电，
+  系统界面不弹、通知也收不掉」，而这条链上每一段单看都是对的。现在每帧盯
+  `ref.watch` 当前那个控制器（`_attach`，幂等）。这个 bug 是写用例时被逼出来的：
+  用例里先起 App 再登录，正好就是那条路径。
+
+**原生侧**（`ios/Runner/AppDelegate.swift`，同一个文件，没动工程文件）
+
+* `gracelinkim/callkit` 通道 + `CallKitBridge`：`reportIncomingCall`
+  （`CXProvider.reportNewIncomingCall`，回执异步：`ok` / `reason` / `alreadyReported`）、
+  `reportEnded`（`reportCall endedAt:`，结束原因映到系统认的那几种）、`takePendingCall`
+  （App 被 VoIP 推送叫醒时 Dart 还没起来，报文先存在原生，取一次清掉）、`voipToken`、
+  `lastError`、`isAvailable`；
+* **原生 → Dart 走同一条通道反方向**（`invokeMethod("action", …)`，`kind` = answer /
+  end / incoming / token）：`CXProviderDelegate` 的接听、挂断、与「系统把通话整个重置了」
+  （`providerDidReset`，当成一次 end）都从那里上去；
+* **PushKit**：`PKPushRegistry`（`voip` 类型）前台启动时注册；收到 VoIP 推送**就地**报给
+  CallKit（苹果的硬规则，iOS 13 起：先去别处转一圈再报就算滥用推送，系统会掐掉 App），
+  `completion` 收在一只「只放行一次」的盒子里（回执 + 5 秒兜底），报完再叫醒已经活着的
+  Dart，**Dart 收下了才把暂存报文清掉**（不然下次冷启动会把这通早已结束的电话又接一遍）；
+* **音频会话交给系统**：`didActivate audioSession` 复用保活那条 `CallAudioSession`
+  （分类 `playAndRecord`），`didDeactivate` 如实关掉 —— 不关的话「麦克风正在使用」
+  那个点会一直亮着；`CXProviderConfiguration` 语音 / 视频都支持、
+  `maximumCallGroups = 1`（多人通话那个界面还没做）。
+* `ios/Runner/Info.plist`：`UIBackgroundModes` 加 **`voip`**（PushKit 靠它才收得到；
+  网上「iOS 13 之后不必再声明」是把两件事搞混了）。
+
+**用例**
+
+* `test/core/callkit_test.dart`（新，11）：接口契约 —— 参数怎么传、报失败**不抛**只带回原因、
+  `takePendingCall` 只交一次、事件通道叫醒监听表、非 iOS 上是空操作；
+* `test/features/call_system_ui_test.dart`（新，8）：**报给系统的时机**（后台要报 /
+  前台不报 / 同一通只报一次 / 报失败不抛 / 按接听真的发出 `acceptRtc` / 冷启动那条报文
+  接得起来 / 对端挂断与本机挂断都要收尾）；
+* `test/core/ios_runner_test.dart`（+几条）：`voip` 模式必须在、PushKit 回调必须
+  在同一轮里上报、`gracelinkim/callkit` 的方法名与 Dart 侧对得上；
+* `integration_test/ios_callkit_smoke_test.dart`（新）：设备上的自检，判据**故意不是**
+  「来电真的弹出来了」（模拟器上 CallKit 不工作，写死就是一条永久红），而是
+  「通道在 + 上报要么成功、要么带回一条**非空**原因」。
+
+#### 三、验过 / 没验
+
+* 验过：`flutter analyze` **No issues**；上述三个用例文件 **43 passed**
+  （`call_system_ui_test` 8 + `callkit_test` 11 + `call_page_test` 24 回归）；
+  `flutter test` 全量 **2379 passed / 1 skipped**。验的是**接线与时机** ——
+  真设备上的 CallKit 一条都没碰（那一层只能在 iPhone 上验）。
+* 没验（**照实记，别把绿灯当整条路通了**）：
+  * **真机一次都没验** —— 模拟器上 CallKit 不跑，`reportNewIncomingCall` 必回错误；
+    「锁屏上那个界面长什么样、按了接听之后音频对不对、被划掉之后真能被叫醒吗」
+    只有 iPhone 能答；
+  * ~~**服务端那条 VoIP 推送还没写**：现在 iOS 上收到的仍是普通 FCM 数据推送 →
+    锁屏上仍是一条普通通知，不是系统来电界面；~~
+    **2026-10-15 当天补上了（见 S12.47）**：APNs 直连（VoIP topic）那条通道写完了，
+    客户端也会把 `apns_voip:` 标识上报上去；**仍未验的只剩「真机上到底收到没有」**
+    （要一把 .p8 钥匙 + 一台 iPhone）；
+  * ~~**VoIP token 拿到了但没上报服务端**（只存在内存里）~~ **S12.47 做了**
+    （`PushRegistrar.applyVoip` → 走既有 `bindUid` 的 `cid` 字段，服务端按前缀当另一行设备）；
+  * 拨出去的那一侧**没接 CallKit**（我们自己的拨号界面照旧），要做系统级的发起
+    得用 `CXStartCallAction`，那是另一件事。
+
+#### 四、接下来
+
+1. ~~服务端补 VoIP 推送（APNs VoIP topic + payload 形状）+ 收下 VoIP token；~~
+   **2026-10-15 做完了（S12.47）**：补丁在 `gracelinkim-server-patch-20261015-voip-push`，
+   部署步骤与验收命令见那里的「部署说明.md」；
+2. 账号到手后：苹果后台建一把带 VoIP 推送权限的 `.p8` → 真机走一遍
+   「锁屏弹出 → 按接听 → 真的说上话 → 挂断后界面收掉」；
+3. 之后才是多人通话（`maximumCallGroups`）与拨出侧的系统界面。
+
+---
+
+## S12.47 iOS 锁屏来电的服务端那一半：APNs 直连 + VoIP 推送（2026-10-15）
+
+#### 一、为什么必须自己开一条通道
+
+S12.46 把「什么时候把来电交给系统」那套判断写完了，但整条路还差最后一格：
+**服务端得发得出 VoIP 推送**。它不能借 FCM —— `apns-push-type: voip` 与
+`apns-topic: <bundle>.voip` 这两个头 FCM 不给你传（它永远走普通 `alert` 通道），
+而 PushKit **只认 voip 那一条**。所以只能拿 `.p8` 直连 `api.push.apple.com`（HTTP/2）。
+
+顺带一个必须说清的语义差别：**同一台 iPhone 上现在有两条登记**
+（服务端把它们当两台设备）——
+
+| 通道 | 管什么 | 标识 |
+|---|---|---|
+| `fcm_ios` | 普通消息通知、以及「这通电话已结束」的收尾帧 | `fcm_ios:xxx` |
+| `apns_voip` | **一通新来电**（锁屏 / 后台弹系统来电界面） | `apns_voip:xxx` |
+
+老客户端（只报 `fcm:`）不受影响 —— 行为不退化，只是 iPhone 上的来电仍是一条普通通知。
+
+#### 二、服务端改了什么（10 个文件，交付为补丁目录）
+
+* 新增 `app/common/push/ApnsKey.php`：解析 `.p8`、签 **ES256** 的 provider token
+  （**DER → r‖s 那一步不做的话苹果回 `InvalidProviderToken`**，而且从错误里看不出是格式问题）、
+  拼 `/3/device/<token>`；topic 由 Bundle ID 加 `.voip`。
+* 新增 `app/common/push/ApnsVoipProvider.php`：`apns-topic` / `apns-push-type: voip` /
+  `apns-priority: 10` / `apns-expiration`；报文顶层字段与 FCM 那条**逐字一致**
+  （客户端原生 `parseCallPayload` 读的就是它们），另加 `aps.content-available`
+  （缺 `aps` 苹果回 `BadPayload`）、**不放 alert**（PushKit 不显示通知，界面由 CallKit 画）。
+* **停设备的判据收紧**：只有 `410 Unregistered` / `BadDeviceToken` 才算「标识失效」。
+  `DeviceTokenNotForTopic`、`InvalidProviderToken`、`BadTopic` 一律只算失败 ——
+  它们是**我们这边**配错了（Bundle ID、钥匙权限、沙箱/生产），
+  当成设备失效就会一次把所有 iPhone 停掉，而日志里看起来是「设备全失效了」。
+* `PushProvider` 接口多了 `accepts(PushMessage)`：这是本轮的**关键一层** ——
+  同一条 FCM 通道在安卓能画来电界面、在 iPhone 只能弹普通通知，
+  服务商自己才知道自己那条路能干什么，所以由它回答、`PushManager` 统一问
+  （被跳过的写进日志：`apns_voip 不发行这类推送`）。
+* `PushMessage` 多了 `isCallCanceled()` / `isIncomingCall()`：收尾帧与「一通新来电」
+  在旧代码里都是 `isCall = true`，但它们该走的通道完全不同。
+* `FcmProvider` 支持两个登记名（`fcm` / `fcm_ios`），`fcm_ios` **不发行来电**
+  （两条一起发 = 锁屏上系统界面 + 一条通知，两个「接听」）；`access_token` 改成
+  **进程内静态共享**（两个登记名共用一张，不重复跑 Google 换 token）。
+* `CurlHttpClient` 可选强制 HTTP/2，并**先查 libcurl 有没有编 nghttp2**：
+  没有就带一句人话失败，而不是发出一个降级成 HTTP/1.1 的请求
+  （苹果会直接断连，那个错跟「钥匙不对」长得一模一样）。
+* `app/common.php` 的 `pushManager()` 注册三条通道；APNs 凭据不齐**不注册**
+  （那时 iPhone 的来电退回 `fcm_ios` 那条普通通知，而不是每次白打一趟）。
+* `tools/push_selftest.php` 从 100 多项扩到 **171 项**（新增 APNs 段：ES256 签名能被
+  **公钥验签**、请求头、报文、错误映射、两个登记名的规则、token 共享）。
+  顺手修了两处**既有**问题：共享 token 之后几条用例要显式 `forgetAccessToken()`；
+  「传数组会报错」那两条在 **PHP 8** 上会当场 Fatal（`strlen(array)` 是 `TypeError`，
+  不再是 PHP 7 的 warning）—— 现在两个版本的行为都如实记下来。
+
+#### 三、客户端改了什么（要让 iPhone 真的收到，这一半也得在）
+
+* `push_token.dart`：iOS 上 FCM 那条的登记名改成 **`fcm_ios`**（服务端靠它把来电排除
+  在这条路之外）；新增 `apns_voip` 前缀与 `voipCidOf()`。
+* `credential_store.dart`：`cidVoip` 与 `cid` **分开存**（它们是两行设备）。
+* `push_registrar.dart`：新增 `applyVoip()`（拿到 PushKit 标识 → 落盘 → 上报；
+  空串跳过、没注入回调就空操作、整段吞异常）；provider 里接上 `CredentialStore` 的读写。
+* `call_push_host.dart`：拿到 VoIP 标识的两条路径（启动时 `voipToken()`、
+  原生回调 `CallKitActionKind.token`）都上报一次。
+
+#### 四、验过 / 没验
+
+* 验过：
+  * 服务端：`php -l` 全部通过；`php tools/push_selftest.php` → **全部通过（171 项）**
+    （本机 php 默认没开 openssl/curl 扩展，跑的时候要带
+    `-d extension_dir=…\ext -d extension=openssl -d extension=curl -d extension=mbstring`）；
+  * 补丁自检：`node _patch/check-voip-push-patch.js` → **44 项全部通过**（只读文件，
+    核对文件齐不齐、关键实现在不、有没有把真钥匙带进来）；
+  * 客户端：`flutter analyze` **No issues**；`flutter test` 全量 **2385 passed / 1 skipped**
+    （新增 6 条：`push_registrar_test` 5 + `call_system_ui_test` 1）。
+* 没验（**照实记**）：
+  * **一次都没真的推到苹果**：没有 `.p8` 钥匙、没有真机 —— 「苹果收下了没有、
+    手机上弹了没有」只有真机能答（`.p8` 要到 12 月买号之后才有）；
+  * **线上服务器的 curl 有没有编 HTTP/2 没验**（本机 php 没装 curl 扩展，
+    那条判断只能在服务器上跑出来）；没有的话日志里会明说，出路是配 `[PUSH] HTTP_PROXY`；
+  * **沙箱 / 生产填反**这件事一定会踩一次（表现是 `BadDeviceToken`）—— 测试期
+    先用 `APNS_SANDBOX=true`，出正式包改 `false`，文档里写清了。
+
+#### 五、接下来
+
+1. 按补丁里的「部署说明.md」部署到测试服务器（含 `.env` 六项 + `php think clear`）；
+2. 客户端出新包，iPhone 上确认设备表里出现 `apns_voip` 与 `fcm_ios` 两行；
+3. 买号之后建 `.p8` → 真机走一遍「锁屏弹出 → 接听 → 说上话」；
+4. 之后才是拨出侧的系统界面（`CXStartCallAction`）与多人通话。
+
+## S12.48 删掉「通话线路」那一栏：它报的 TURN 结论是假的（2026-10-15 用户要求）
+
+#### 一、为什么删
+
+那一栏（S12.44，2026-10-10）只读三份**静态**来源：站点后台那栏
+（`chatInfo.stun / stunUser / stunPass`）、代码里写死的公共 STUN、
+`CallMediaConfig.ownTurnServers`（**刻意留空**）。而真正在通话里起作用的那一路 TURN 是
+**服务端动态签发的 Cloudflare 短时凭据**（`POST /enterprise/im/turnCredentials`），它是在
+**建 `RTCPeerConnection` 的那一刻**才并进来的（`call_media_engine.dart` / `call_host.dart` /
+`sfu_peer_connection.dart`）—— 这一页压根看不到。
+
+于是出现了最糟的一种界面：S12.45 那次实测里（八条候选全是 `typ relay`、中转 503ms 接通、
+数据通道往返 291ms）**TURN 明明在承载媒体**，而这一栏写的是「没有可用的 TURN」「仅 STUN」，
+还叫用户「去站点后台配置 TURN」。它把「TURN 好用」和「TURN 真挂了」显示成同一个样子，
+既误导、又不能当判据。用户 2026-10-15 看到截图后的原话：「把这个直接删了」。
+
+#### 二、删了什么 / 顺手处理的后果
+
+* 删：`features/call/call_route_row.dart`（那一行 + 明细弹层）、
+  `domain/call/call_route_info.dart`、`test/domain/call_route_info_test.dart`，
+  以及 7 份语言包里 `call.route*` 共 **14 个 key**（`call.route*` 再无引用）。
+* 后果：桌面上那一页剩下的行全是安卓专属，release 构建里点进去**又变白纸** —— 正是
+  2026-10-10 用户报过的那件事。按同一句原话的后半段「要么有东西，要么就不要有这一栏」，
+  改成**没有内容就不给入口**：`callSettingHasAnyRow()`（`mine/call_setting_page.dart`）与
+  那一页真正会画出来的三行**同一套口径**，设置页两个布局都问它
+  （`mine/setting_page.dart`；桌面左列的分类顺手从 `int 下标` 换成 `_SettingSection` 枚举 ——
+  藏掉一整类时下标才不会错位，`settingCategory<N>` 这几个 key 的含义保持不变）。
+* 「前台服务自检」那一行改成走 `callSelfCheckRowProvider`（默认 `kDebugMode`）：只为了让用例
+  能像 **release 构建**那样把它关掉，从而验证「入口整栏消失」这条路（否则那条路在测试里
+  永远不可达 —— `kDebugMode` 编译期就是 true）。
+
+#### 三、验过 / 没验
+
+* 验过：`flutter analyze` → **No issues found**；`flutter test` 全量 →
+  **2387 passed / 1 skipped**（`EXIT=0`；改前是 2392，差额 = 删掉的那份 `call_route_info_test`
+  与其后重写的这一页用例）。
+  * `call_setting_page_test.dart` 重写为 6 条：那一栏确实没了（连带那句错结论）/
+    桌面上剩下 debug 自检那一行 / release 里自检也不画 / 「来电全屏显示」只跟
+    `backgroundHealth` 走 / **一行都画不出时入口整栏消失**（`功能` 一并消失、别的分组照旧）/
+    有内容时入口照旧；
+  * `desktop_windows_test` 那条「点开不是白纸」改成断 debug 自检那一行（宽窗那条路也覆盖）。
+* 没验：真机观感 —— 「桌面 **release** 包里设置看不到『音视频通话』这一栏」要出一个正式包
+  才能眼见（测试环境是 debug，那一栏是被 provider 顶掉后验的）。
+
+## S12.49 macOS：三条自家原生通道（子窗 / 版本号 / 菜单栏），独立窗口在 Mac 上从来就没出现过（2026-10-15）
+
+#### 一、为什么动这一块（用户的原话是「不是重头戏，你看着来」）
+
+macOS 版 10-11 就已经出包并上架官网（`Gracelink.Mac.-1.0.0.dmg`），但 `macos/Runner/`
+里一直只有两个 Swift 文件（`AppDelegate` / `MainFlutterWindow`），
+A 块那三条自家通道（`gracelinkim/child_window`、`tray`、`app_info`）只有 Windows 有实现。
+
+其中 `child_window` 那条**不是缺一个体验，是缺一大块功能**：桌面上每一扇子窗
+（文章 / 灵听 / 媒体号 / 网页窗 / **通话窗**）都是 `hiddenAtLaunch: true` 建出来的，
+`show` 那一声走的正是这条通道（Dart 侧见 `desktop_window_service.dart` /
+`call_window_host.dart` 里「设好标题/大小/居中再 show，不然先闪一下 800×600」那行注释）。
+macOS 上没有这条通道 → **窗口建出来了、只是永远藏着**：点文章 / 灵听 / 网页窗「没反应」，
+来电话时那扇通话窗也不出现。顺带还有两个小口子：版本号读不到（「检查更新」报给服务端的
+内部号永远是 0），以及 ✕ 直接退出、没有「缩回后台」。
+
+#### 二、改了什么（`macos/Runner/` 三个新文件 + 两个老文件，都已进 pbxproj）
+
+* **`ChildWindowChannel.swift`（新）**：`setTitle` / `setSize` / `center` / `show` /
+  `close` / `guardClose`。挂上它的时机用插件给的公开回调
+  （`FlutterMultiWindowPlugin.setOnWindowCreatedCallback`）。✕ 的语义照 Windows 搬：
+  **没声明过的窗**（文章 / 网页 / 媒体号 / 灵听）✕ 就是关掉；**声明过的窗**（通话窗那颗
+  webrtc 引擎，Dart 侧 `onCloseRequested` 会先发 `guardClose`）先回一条 `close_requested`
+  让 Dart 收摊，等不到就 5 秒后照样关（与 Windows 的 `kChildCloseGraceMs` 同值）——
+  没有这道兜底，那扇窗会永远关不掉（Windows 上真机踩过）。
+  `close` 时先把 `contentViewController` 置空再关，引擎才会真的被释放
+  （不然只是不可见，每颗 ≈56MB 留着）。
+* **`AppInfoChannel.swift`（新）**：`gracelinkim/app_info` 的 `version`，从 `Info.plist`
+  那两个由 Flutter 从 pubspec 展开的键读（`CFBundleShortVersionString` / `CFBundleVersion`），
+  与 Windows 那边读 CMake 宏同一个来源。读不到就如实报错让 Dart 用常量兜底，
+  不回一个「看起来对」的假版本号。
+* **`TrayIcon.swift`（新）**：`NSStatusItem` + 「打开 / 退出」菜单（文案由 Dart 经
+  `gracelinkim/tray` 递进来，与 Windows 的分工一样），✕ 走 `orderOut` 缩回后台。
+  **闸门**：菜单栏图标没建起来就维持老行为（关窗 = 退出）—— 半成品会造出
+  「窗口关掉了、程序还在跑、却叫不回来」那种状态。回来的路有两条：菜单栏那一项，
+  以及点 Dock 图标（`applicationShouldHandleReopen`，不写它点 Dock 什么都不会发生）。
+* **`MainFlutterWindow.swift`**：注册三条通道 + `performClose` 缩回后台（不走 delegate：
+  主窗的 delegate 是 MainMenu.xib 接给 AppDelegate 的，抢过来会连带影响 Flutter 自己那套）。
+* **`AppDelegate.swift`**：`applicationShouldTerminateAfterLastWindowClosed` 在图标就绪后
+  回 false（关窗留进程），并补上 `applicationShouldHandleReopen`。
+
+#### 三、验过 / 没验（照实记）
+
+* 验过：`flutter analyze` → **No issues found**；`flutter test` 全量 →
+  **2393 passed / 1 skipped**（`EXIT=0`，改前 2387，新增 6 条都在
+  `test/core/macos_runner_test.dart` 的「原生通道」一组里）。那 6 条钉的是**契约**而不是实现：
+  Dart 调的每个方法名 macOS 那边都得实现（画中画 / 拖窗除外）、`close_requested` 两边同名、
+  子窗通道必须在建出任何子窗之前挂上、**Runner 下每个 .swift 都得在 `project.pbxproj` 的
+  Sources 里**（忘了加进工程在 Windows 上报不出来）、app_info 与 tray 的键两边对齐、
+  以及「关窗缩回后台」必须守在 `TrayIcon.isReady` 之后。
+  这些错**一个都不会让本机报错**（`DesktopWindowNative` 的每次调用都吞异常），
+  所以只能这样钉。
+* **没验（本轮最大的缺口）**：**Swift 一行都没编译过** —— 本机是 Windows，编不了 macOS；
+  这一批要等 `.github/workflows/macos.yml` 在 CI 上跑一遍才算「编得过」，
+  而「窗口在屏幕上摆得对不对、菜单栏图标长什么样、✕ 缩回后点 Dock 能不能回来」
+  只有真 Mac 能答（租一小时云 Mac 就能过验收清单）。
+* 屏幕共享那条沙箱 entitlement **仍然没写**（键名找不到权威出处，等真机试屏幕共享时再定）。

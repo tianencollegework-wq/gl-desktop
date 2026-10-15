@@ -21,6 +21,9 @@
 /* End PBXAggregateTarget section */
 
 /* Begin PBXBuildFile section */
+		A1B2C3D4010000000000E002 /* ChildWindowChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4010000000000E001 /* ChildWindowChannel.swift */; };
+		A1B2C3D4020000000000E002 /* AppInfoChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4020000000000E001 /* AppInfoChannel.swift */; };
+		A1B2C3D4030000000000E002 /* TrayIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4030000000000E001 /* TrayIcon.swift */; };
 		331C80D8294CF71000263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C80D7294CF71000263BE5 /* RunnerTests.swift */; };
 		335BBD1B22A9A15E00E9071D /* GeneratedPluginRegistrant.swift in Sources */ = {isa = PBXBuildFile; fileRef = 335BBD1A22A9A15E00E9071D /* GeneratedPluginRegistrant.swift */; };
 		33CC10F12044A3C60003C045 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33CC10F02044A3C60003C045 /* AppDelegate.swift */; };
@@ -61,6 +64,9 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A1B2C3D4010000000000E001 /* ChildWindowChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChildWindowChannel.swift; sourceTree = "<group>"; };
+		A1B2C3D4020000000000E001 /* AppInfoChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppInfoChannel.swift; sourceTree = "<group>"; };
+		A1B2C3D4030000000000E001 /* TrayIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrayIcon.swift; sourceTree = "<group>"; };
 		331C80D5294CF71000263BE5 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		331C80D7294CF71000263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
 		333000ED22D3DE5D00554162 /* Warnings.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Warnings.xcconfig; sourceTree = "<group>"; };
@@ -168,6 +174,9 @@
 			children = (
 				33CC10F02044A3C60003C045 /* AppDelegate.swift */,
 				33CC11122044BFA00003C045 /* MainFlutterWindow.swift */,
+				A1B2C3D4010000000000E001 /* ChildWindowChannel.swift */,
+				A1B2C3D4020000000000E001 /* AppInfoChannel.swift */,
+				A1B2C3D4030000000000E001 /* TrayIcon.swift */,
 				33E51913231747F40026EE4D /* DebugProfile.entitlements */,
 				33E51914231749380026EE4D /* Release.entitlements */,
 				33CC11242044D66E0003C045 /* Resources */,
@@ -356,6 +365,9 @@
 			files = (
 				33CC11132044BFA00003C045 /* MainFlutterWindow.swift in Sources */,
 				33CC10F12044A3C60003C045 /* AppDelegate.swift in Sources */,
+				A1B2C3D4010000000000E002 /* ChildWindowChannel.swift in Sources */,
+				A1B2C3D4020000000000E002 /* AppInfoChannel.swift in Sources */,
+				A1B2C3D4030000000000E002 /* TrayIcon.swift in Sources */,
 				335BBD1B22A9A15E00E9071D /* GeneratedPluginRegistrant.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

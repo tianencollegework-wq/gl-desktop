@@ -212,6 +212,128 @@ void main() {
       );
     });
   });
+
+  /// 2026-10-15：把 macOS 缺的那几条**自家原生通道**补上（子窗 / 版本号 / 菜单栏）。
+  ///
+  /// 这一组钉的是「Dart 与 Swift 两边叫得不一样」这种错 —— 它**永远不会报错**：
+  /// `DesktopWindowNative` 的每个调用都吞异常（非 Windows / 通道没注册就静默忽略），
+  /// 所以少一个方法名、键拼错一个字母，现象只是「窗口永远不出现」「内部号永远是 0」，
+  /// 而本机是 Windows，编不了 macOS，只能到 CI（或真用户）才发现。
+  group('原生通道（child_window / app_info / tray）', () {
+    /// `invokeMethod<void>('setTitle', …)` 这类调用里的方法名
+    Set<String> dartInvoked(String source) => RegExp(
+      r"invokeMethod(?:<[^>]*>)?\(\s*'([^']+)'",
+    ).allMatches(source).map((match) => match.group(1)!).toSet();
+
+    /// Swift 那边 `switch call.method` 里认的名字
+    Set<String> swiftCases(String source) => RegExp(r'case "([^"]+)":')
+        .allMatches(source)
+        .map((match) => match.group(1)!)
+        .toSet();
+
+    test('子窗通道：Dart 调的每个方法 macOS 那边都实现了（画中画 / 拖窗除外）', () {
+      final invoked = dartInvoked(
+        read('lib/features/desktop_window/desktop_window_native.dart'),
+      );
+      expect(
+        invoked,
+        containsAll(<String>['setTitle', 'setSize', 'center', 'show', 'close']),
+        reason: '方法名表是从 Dart 那侧扫出来的，扫不到就说明正则或写法变了',
+      );
+      final implemented = swiftCases(read('macos/Runner/ChildWindowChannel.swift'));
+
+      // Windows 专有（画中画小窗与拖窗）：macOS 上如实回 NotImplemented，
+      // Dart 那边靠 setPip 的 false 退回没有小窗的版式 —— 不算缺口
+      const windowsOnly = <String>{
+        'setPip',
+        'dragBegin',
+        'dragUpdate',
+        'dragEnd',
+      };
+      expect(
+        invoked.difference(windowsOnly).difference(implemented),
+        isEmpty,
+        reason: '这些方法 Dart 会调，而 macOS 那份没实现 —— 现象是窗口永远不 show',
+      );
+      expect(
+        implemented.difference(invoked),
+        isEmpty,
+        reason: 'macOS 实现了一个 Dart 从不调的名字（多半是拼错了）',
+      );
+    });
+
+    test('✕ 那条回调和两边叫同一个名字（close_requested）', () {
+      expect(
+        read('macos/Runner/ChildWindowChannel.swift'),
+        contains('"close_requested"'),
+        reason: 'macOS 不再问 Dart 就直接关：通话窗那颗媒体引擎会连着引擎一起被拆',
+      );
+      expect(
+        read('lib/features/desktop_window/desktop_window_native.dart'),
+        contains("'close_requested'"),
+        reason: 'Dart 那边接的就是这个名字',
+      );
+    });
+
+    test('子窗通道在**建出任何子窗之前**挂上（插件那个回调）', () {
+      final window = read('macos/Runner/MainFlutterWindow.swift');
+      expect(
+        window,
+        contains('setOnWindowCreatedCallback'),
+        reason: '子窗是 hiddenAtLaunch 建的，没人叫它 show 就永远藏着',
+      );
+      expect(window, contains('ChildWindowChannel.attach'));
+      expect(window, contains('FlutterMultiWindowPlugin'));
+    });
+
+    test('Runner 下每个 .swift 都进了 Xcode 工程的编译清单', () {
+      // 新增 Swift 忘了加进 target：本机报不出来（编不了 macOS），
+      // 到 CI 才变成「找不到符号」，而且那时已经推上去了
+      final pbxproj = read('macos/Runner.xcodeproj/project.pbxproj');
+      final swiftFiles = Directory('macos/Runner')
+          .listSync()
+          .whereType<File>()
+          .where((file) => file.path.endsWith('.swift'))
+          .map((file) => file.uri.pathSegments.last)
+          .toList();
+      expect(swiftFiles, isNotEmpty, reason: 'macos/Runner 下一个 .swift 都没读到');
+      for (final file in swiftFiles) {
+        expect(
+          pbxproj,
+          contains('/* $file in Sources */'),
+          reason: '$file 没进 pbxproj 的 Sources build phase',
+        );
+      }
+    });
+
+    test('版本号：macOS 那份回的键与 Dart 读的键对齐', () {
+      final swift = read('macos/Runner/AppInfoChannel.swift');
+      expect(swift, contains('gracelinkim/app_info'));
+      expect(swift, contains('"version"'), reason: 'Dart 调的是 version');
+      expect(swift, contains('"name"'));
+      expect(swift, contains('"code"'));
+      expect(
+        read('lib/core/platform/app_version.dart'),
+        contains('gracelinkim/app_info'),
+        reason: '通道名两边得一模一样',
+      );
+    });
+
+    test('菜单栏：Dart 递的三个键 macOS 那边都接、且关窗行为有闸门', () {
+      final swift = read('macos/Runner/TrayIcon.swift');
+      final dart = read('lib/features/desktop_window/tray_native.dart');
+      expect(swift, contains('gracelinkim/tray'));
+      for (final key in <String>['open', 'exit', 'balloon']) {
+        expect(dart, contains("'$key'"), reason: 'Dart 递过去的键少了 $key');
+        expect(swift, contains('"$key"'), reason: 'macOS 那边没接 $key');
+      }
+      // 「关窗缩回后台」必须守在图标建起来之后 —— 否则用户关掉窗口就叫不回来了
+      expect(read('macos/Runner/MainFlutterWindow.swift'),
+          contains('TrayIcon.shared.isReady'));
+      expect(read('macos/Runner/AppDelegate.swift'),
+          contains('TrayIcon.shared.isReady'));
+    });
+  });
 }
 
 /// 一张图里我们关心的几个比例（与 `branding_test.dart` 的 `_stats` 同一个手法）

@@ -213,8 +213,8 @@ macOS 用系统红绿灯 + 默认菜单栏即可（`macos/Runner/Base.lproj/Main
 | 最小窗口 | `MainFlutterWindow.swift` 里 `contentMinSize` = 900×600 | `desktop_window_min_size_test.dart` 新增一条 |
 | 网页窗 | macOS 走**系统那一支**（`webview_flutter` 的 WKWebView，与手机同一套 API）：原来那段注释写「只到安卓/iOS」是错的 | `desktop_windows_test.dart` 里的平台分流断言（⚠️ macOS 那一支要到真机上才跑得到） |
 
-（下面第五节末尾那份「A 块入口」就是接着要做的那一大块：`gracelinkim/child_window`、
-`tray`、`app_info` 三个 Swift 文件 + 主窗 / 子窗的注册。）
+（下面第五节末尾那份「A 块入口」—— `gracelinkim/child_window`、`tray`、`app_info`
+三个 Swift 文件 + 主窗 / 子窗的注册 —— **2026-10-15 做完了**，见下一小节。）
 
 改到一半才发现的两件事（都记在图标脚本头部）：
 
@@ -222,13 +222,40 @@ macOS 用系统红绿灯 + 默认菜单栏即可（`macos/Runner/Base.lproj/Main
   所以脚本不再另画底座（第一版白画了一层，被图标用例的像素判据当场敲出来）；
 * 鸽形在底座里**偏左上**（占位 0.446 / 0.433），安卓那份也是 —— 三平台保持同一位移，别顺手居中。
 
-**这批没做的**：
+### 已经落地的（2026-10-15：A 块那三条自家通道）
 
-* **屏幕共享那条沙箱 entitlement 没敢写**：`com.apple.security.device.screen-capture` 这个键名
+上一小节那批是「配置与资源」，这一批是**原生代码**（`macos/Runner/` 三个新文件，
+都已加进 `project.pbxproj` 的 Sources）。三条都对着 Windows 那套搬，因为 Windows
+那份已经在真机上跑了一年多。
+
+| 项 | 落成什么样 | 谁守着 |
+|---|---|---|
+| 子窗通道 `gracelinkim/child_window` | 标题 / 尺寸 / 居中 / `show` / `close` / `guardClose`，外加 ✕ 那一手（问 Dart 收摊、5 秒兑底） | `test/core/macos_runner_test.dart`「原生通道」那一组 |
+| 版本号 `gracelinkim/app_info` | 从 `Info.plist` 读（那些键是 Flutter 从 pubspec 展开的） | 同上 |
+| 菜单栏图标 `gracelinkim/tray` + 关窗缩回后台 | `NSStatusItem` + 「打开 / 退出」菜单（文案由 Dart 递进来）；✕ = `orderOut` 藏起来 | 同上 |
+
+**为什么要补子窗通道（这是这次最要紧的一修）**：桌面上每一扇子窗
+（文章 / 灵听 / 媒体号 / 网页窗 / **通话窗**）都是用 `hiddenAtLaunch: true` 建的 ——
+先藏起来、等窗口自己把标题尺寸居中设好再 `show`，免得先闪一下 800×600。
+那条 `show` 走的正是这条通道，而 macOS 一直没有它 —— 于是 **Mac 上那些窗口从来就没
+出现过**（窗口真的建了，只是永远藏着）：点文章 / 灵听 / 网页窗「没反应」，
+来电话时的那扇通话窗也不出现。
+
+挂上它的时机：`desktop_multi_window` 的 macOS 实现给了一个公开回调
+（`FlutterMultiWindowPlugin.setOnWindowCreatedCallback`），在 `MainFlutterWindow`
+的 `awakeFromNib` 里注册一次，之后每扇新子窗都会被 `ChildWindowChannel.attach` 接住。
+
+**关窗那一手为什么守着一道闸门**：菜单栏图标没建起来就**维持老行为（关窗 = 退出）**
+（`TrayIcon.isReady`）。半成品会造出你担心的那个状态 —— 窗口关掉了、程序还在跑、
+却叫不回来。两道回来的路：菜单栏那一项，以及点 Dock 图标
+（`applicationShouldHandleReopen`，不写它的话点 Dock 什么都不会发生）。
+
+**这批还没做的**：
+
+* **屏幕共享那条沙箱 entitlement 还没写**：`com.apple.security.device.screen-capture` 这个键名
   找不到权威出处（确定的是它属于 TCC 那套「屏幕录制」授权），等真机试屏幕共享时再定；
-* **托盘与关窗缩回后台没动**：`applicationShouldTerminateAfterLastWindowClosed` 现在还是 `true`
-  （关掉最后一个窗口就退出）。那要连着 `NSStatusItem`、`windowShouldClose` 一起做，
-  一次做完才敢推 —— 半成品会造出「关掉窗口后程序还在跑、却叫不回来」的状态。
+* **画中画小窗 / 拖窗（`setPip` / `drag*`）是 Windows 专有**：macOS 那份如实回
+  `NotImplemented`，Dart 那边靠 `setPip` 的 `false` 退回没有小窗的版式。
 
 ---
 
@@ -522,6 +549,8 @@ GitHub 上实际这么干的例子 <https://github.com/isar/isar/blob/main/.gith
 2. 沙箱 + 屏幕共享 / 摄像头在 macOS 上的具体坑（TCC 提示时序、macOS 15 的定期重授权）；
 3. `desktop_multi_window` 在 macOS 上的子窗口行为 —— Windows 那份自己改过一版无边框/尺寸逻辑，
    插件在 macOS 上默认给什么样式要实测，`setPip` 那几条（无边框 + 置顶 + 右下角）也得对着 AppKit 重做一遍；
+   **2026-10-15 补的子窗通道也只是「本机读源码 + CI 编译」过**：窗口真在屏幕上是什么位置、
+   菜单栏图标长什么样、✕ 缩回之后点 Dock 能不能回来，都要到真 Mac 上过一遍；
 4. WebRTC 在 macOS 沙箱下的网络行为（本地网络权限 `NSLocalNetworkUsageDescription`、
    对称 NAT 下的打洞），这与 Windows 的表现不会完全一致；
 5. 公证在 CI 里的具体报错（买了账号那天才会遇到：`notarytool` 对 entitlements 很挑，例如多余的 entitlement 会被拒）；
