@@ -63,6 +63,35 @@ void main() {
       );
     });
 
+    test('只有这几条是我们有意加的（多出来的键要先去查清再放进来）', () {
+      // 2026-10-15 刚查清的一个例子：屏幕共享在 Mac 上"看起来该加一条 screen-capture"，
+      // 而 **Apple 的 entitlements 列表里没有那个写法** —— 普通屏幕捕获要的是人在
+      // 「系统设置 → 隐私与安全性 → 屏幕录制」里那一下授权，插件自己会去请求
+      //（flutter_webrtc 的 `requestCapturePermission` → `CGRequestScreenCaptureAccess`）。
+      // 塞一个来源不明的键，结果是“以为配好了”、而真正的授权根本没要到。
+      // 所以这里用白名单：想加新键，得先把它加到这份名单里并在上面写清为什么。
+      const allowed = <String>{
+        'com.apple.security.app-sandbox',
+        'com.apple.security.network.client',
+        'com.apple.security.device.camera',
+        'com.apple.security.device.microphone',
+        'com.apple.security.files.user-selected.read-write',
+        'com.apple.security.files.downloads.read-write',
+        'com.apple.security.personal-information.photos-library',
+        // 这两条只有 Debug 那份有（见下一条用例）
+        'com.apple.security.cs.allow-jit',
+        'com.apple.security.network.server',
+      };
+      for (final file in <String>[release, debug]) {
+        final extra = keysOf(file).difference(allowed);
+        expect(
+          extra,
+          isEmpty,
+          reason: '$file 里有没被认过、也没注理由的键：${extra.toList()..sort()}',
+        );
+      }
+    });
+
     test('扫码/通话/存图那几条权限都在', () {
       final keys = keysOf(release);
       for (final key in <String>[

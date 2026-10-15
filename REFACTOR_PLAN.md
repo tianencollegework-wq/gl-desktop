@@ -10262,8 +10262,9 @@ macOS 上没有这条通道 → **窗口建出来了、只是永远藏着**：�
 #### 三、验过 / 没验（照实记）
 
 * 验过：`flutter analyze` → **No issues found**；`flutter test` 全量 →
-  **2393 passed / 1 skipped**（`EXIT=0`，改前 2387，新增 6 条都在
-  `test/core/macos_runner_test.dart` 的「原生通道」一组里）。那 6 条钉的是**契约**而不是实现：
+  **2394 passed / 1 skipped**（`EXIT=0`，改前 2387，新增的 7 条里 6 条在
+  `test/core/macos_runner_test.dart` 的「原生通道」一组、1 条是 entitlements 白名单）。
+  那 6 条钉的是**契约**而不是实现：
   Dart 调的每个方法名 macOS 那边都得实现（画中画 / 拖窗除外）、`close_requested` 两边同名、
   子窗通道必须在建出任何子窗之前挂上、**Runner 下每个 .swift 都得在 `project.pbxproj` 的
   Sources 里**（忘了加进工程在 Windows 上报不出来）、app_info 与 tray 的键两边对齐、
@@ -10274,4 +10275,15 @@ macOS 上没有这条通道 → **窗口建出来了、只是永远藏着**：�
   这一批要等 `.github/workflows/macos.yml` 在 CI 上跑一遍才算「编得过」，
   而「窗口在屏幕上摆得对不对、菜单栏图标长什么样、✕ 缩回后点 Dock 能不能回来」
   只有真 Mac 能答（租一小时云 Mac 就能过验收清单）。
-* 屏幕共享那条沙箱 entitlement **仍然没写**（键名找不到权威出处，等真机试屏幕共享时再定）。
+* 屏幕共享要不要加 entitlement —— **2026-10-15 查清了：不用加**。Apple 的 entitlements 列表里
+  没有 `com.apple.security.device.screen-capture` 这个写法（与屏幕捕获相关的只有
+  `com.apple.developer.persistent-content-capture`，那是给 VNC 那类「持续捕获」应用的）；
+  普通捕获要的是「系统设置 → 隐私与安全性 → 屏幕录制」里那一下授权，
+  客户端自己会请求它（`flutter_webrtc` 的 `requestCapturePermission` →
+  `CGRequestScreenCaptureAccess`）。所以两份 entitlements **一个字都没改**，
+  改成用用例把白名单锁住（新加的那条「只有这几条是我们有意加的」）：
+  以后想塞新键，得先把它加进那份名单并写清理由 —— 免得再出现「以为配上了、
+  其实真正的授权根本没要到」。来源见 Apple 的 Entitlements 列表与
+  `CGRequestScreenCaptureAccess()` 文档，链接与推理过程记在 `docs/release/macos-plan.md`。
+* 真机上还差一步：那个「屏幕录制」授权框在 **ad-hoc 签名（未公证）**下会不会每次重建都要一次 ——
+  Apple 官方文档没有承诺过，开发者论坛有「重建后又要授权」的报告，只有真 Mac 能答。

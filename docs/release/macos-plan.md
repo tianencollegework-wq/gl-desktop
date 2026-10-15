@@ -250,12 +250,28 @@ macOS 用系统红绿灯 + 默认菜单栏即可（`macos/Runner/Base.lproj/Main
 却叫不回来。两道回来的路：菜单栏那一项，以及点 Dock 图标
 （`applicationShouldHandleReopen`，不写它的话点 Dock 什么都不会发生）。
 
+**屏幕共享在 Mac 上到底要不要 entitlement —— 2026-10-15 查清了，结论是「不用」**：
+Apple 的 entitlements 列表里**没有** `com.apple.security.device.screen-capture` 这个写法
+（与屏幕捕获相关的只有 `com.apple.developer.persistent-content-capture`，那是给 VNC 那类
+「持续捕获」应用的）；普通捕获要的是人在「系统设置 → 隐私与安全性 → 屏幕录制」里那一下授权，
+客户端自己会去请求它（`flutter_webrtc` 的 `requestCapturePermission` →
+`CGRequestScreenCaptureAccess`，macOS 那份实现在
+`flutter_webrtc/macos/.../FlutterWebRTCPlugin.m`）。
+所以**两份 entitlements 一个字都没改**，改为用用例把白名单锁住：
+`test/core/macos_runner_test.dart` 里新加一条「只有这几条是我们有意加的」——
+以后想塞新键，得先把它加进那份名单并写清理由。
+（来源：Apple [Entitlements 列表](https://developer.apple.com/documentation/bundleresources/entitlements)、
+[`CGRequestScreenCaptureAccess()`](https://developer.apple.com/documentation/coregraphics/cgrequestscreencaptureaccess())、
+[Capturing screen content in macOS](https://developer.apple.com/documentation/screencapturekit/capturing-screen-content-in-macos)；
+保留的那条只适用于“持续捕获”类应用，不适用于我们这种「用户点一下共享」的形态。）
+
 **这批还没做的**：
 
-* **屏幕共享那条沙箱 entitlement 还没写**：`com.apple.security.device.screen-capture` 这个键名
-  找不到权威出处（确定的是它属于 TCC 那套「屏幕录制」授权），等真机试屏幕共享时再定；
 * **画中画小窗 / 拖窗（`setPip` / `drag*`）是 Windows 专有**：macOS 那份如实回
-  `NotImplemented`，Dart 那边靠 `setPip` 的 `false` 退回没有小窗的版式。
+  `NotImplemented`，Dart 那边靠 `setPip` 的 `false` 退回没有小窗的版式；
+* **真机上还差一步验证**：上面那个「屏幕录制」授权框在 ad-hoc 签名（未公证）下的表现 ——
+  Apple 官方文档没有承诺未签名应用的 TCC 授权会如何长期保存（开发者论坛有“重建后又要授权”的
+  报告），所以这一条只能到真 Mac 上过一遍才算数。
 
 ---
 
