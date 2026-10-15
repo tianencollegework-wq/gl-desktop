@@ -46,6 +46,23 @@ on:
       # `x64\signtool.exe` 写成了反斜杠，Mac 上那条用例挂了四轮 —— 而修完它推上去，
       # 因为路径过滤器里只写了 `tool/ci/**`，流水线**一次都没被叫醒**。
       - 'tool/**'
+      # 自检用例本身：这一跑的就是它们，改了理应再跑一次。
+      - 'integration_test/**'
+      # **通话链**：这条流水线的四个自检（保活 / 建连取麦克风 / CallKit / 启动）
+      # 验的就是这几处，而 iOS 专有的毛病也正是从它们里冒出来。
+      #
+      # 2026-10-15 的教训（正是上面那条 tool/** 的翻版）：`a996c26` 修的是
+      # `lib/features/call/call_push_host.dart` 里一个「用例过了之后才掉出来的异常」
+      #（就是这条流水线在 e67c2c7 上报的那个 `failed after test completion`），
+      # 而它**一次都没被叫醒** —— 过滤器里没有 lib/，于是 main 上那条红线又挂了
+      # 四个小时，直到有人手动点了一次。
+      #
+      # 只列通话链这几个目录，不是笼统的 `lib/**`：那样每改一笔 Dart 都要等一趟
+      # 20 分钟起步的模拟器（还互相 cancel），等于把这条链跑废。
+      - 'lib/domain/call/**'
+      - 'lib/features/call/**'
+      - 'lib/data/media/**'
+      - 'lib/core/platform/call_*.dart'
 
 # 同一个 ref 上只留最新一次：真卡住时最烦的不是它白跑，是它占着队列位
 concurrency:
@@ -238,6 +255,23 @@ jobs:
       #      步骤级 `timeout-minutes` 只当兜底。
       #
       # 两条都 `!cancelled()`：一条红不给另一条下结论（失败原因完全不同）。
+      - name: 墙钟自检（下面那道兜底必须真的会砍）
+        # 下面四步都靠 `tool/ci/clock.sh` 把「连接阶段卡住」变短、变成有日志的红。
+        # 而这道兜底在两个平台上走的是两条不同的路（GNU timeout / perl alarm），
+        # **本机只能验到 Windows 那条**（Windows 的 perl 里 alarm 是空的）。
+        # 所以在这台 Mac 上真的叫它砍一条 30 秒的命令 —— 削不动就当场红，
+        # 而不是等某天又卡死 20 分钟、一句日志都没有时才发觉它是个摆设。
+        timeout-minutes: 5
+        run: |
+          start=$(date +%s)
+          bash tool/ci/clock.sh 2 sleep 30 >/dev/null 2>&1 || true
+          took=$(( $(date +%s) - start ))
+          echo "砍一条 30 秒的命令，实际用了 ${took}s（timeout 在不在：$(command -v timeout || echo 没有)；perl：$(command -v perl || echo 没有)）"
+          if [ "$took" -gt 15 ]; then
+            echo "::error::clock.sh 在这台机器上没生效（${took}s）—— 卡死又会变回「20 分钟无声」"
+            exit 1
+          fi
+
       - name: 通话自检①：原生保活（我们自己的 Swift）
         # 为什么要有它：启动自检只证明「起得来」，**一步都没走通话** —— 而 iOS 上
         # 真正没底的是抖动最大的那两块：我们自己的 `gracelinkim/call_service`
@@ -256,7 +290,14 @@ jobs:
           xcrun simctl terminate "$SIM" cc.gracelink.im >/dev/null 2>&1 || true
           xcrun simctl shutdown "$SIM" >/dev/null 2>&1 || true
           xcrun simctl boot "$SIM" >/dev/null 2>&1 || true
-          flutter test integration_test/ios_call_keep_alive_smoke_test.dart -d "$SIM" 2>&1 \
+          # 墙钟 1100s（见 tool/ci/clock.sh 的文件头）：连接阶段卡住时 `flutter test`
+          # 一个字都不打，自己砍比被 GitHub 砍好 —— 后者不给 annotate.sh 机会。
+          # ⚠️ 为什么定到 18 分钟、几乎贴着本步的 20 分钟上限，而不是更短：
+          # 这道兜底的目的**不是省时间，是留下日志**。而这台 runner 的抖动很大 ——
+          # 2026-10-15 两次实测，①这步分别用了 11 分和 15 分 25 秒。定得太紧会把
+          # 「机器慢」钉成永久红，而那正是这条链的文件头一直在避免的事。
+          bash tool/ci/clock.sh 1100 \
+            flutter test integration_test/ios_call_keep_alive_smoke_test.dart -d "$SIM" 2>&1 \
             | tee ios-call-keepalive.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
@@ -280,9 +321,17 @@ jobs:
           # ①刚把同一个 bundle id 装进这台模拟器，这时才授得进去。
           # 授不了（老 Xcode 没这个子命令）不算错 —— 用例自己有硬时限，
           # 会如实打出「卡在哪一步」并以失败收场。
-          xcrun simctl privacy "$SIM" grant microphone cc.gracelink.im || true
+          # 与①④同款的清场（2026-10-15 补）：上一条用例的进程与调试连接可能还挂在
+          # 模拟器里。那一跑正是「②卡死 20 分钟之后，③的 DDS 起不来」（注解原文
+          # `Failed to start Dart Development Service`）—— 一条卡住把后面那条也带
+          # 下水了。重启一次（十几秒）换每一步互不牽连，值。
           xcrun simctl terminate "$SIM" cc.gracelink.im >/dev/null 2>&1 || true
-          flutter test integration_test/ios_call_media_smoke_test.dart -d "$SIM" 2>&1 \
+          xcrun simctl shutdown "$SIM" >/dev/null 2>&1 || true
+          xcrun simctl boot "$SIM" >/dev/null 2>&1 || true
+          xcrun simctl privacy "$SIM" grant microphone cc.gracelink.im || true
+          # 墙钟 1100s：这一步就是上次卡死 20 分钟的现场（正常只要 4 分半）
+          bash tool/ci/clock.sh 1100 \
+            flutter test integration_test/ios_call_media_smoke_test.dart -d "$SIM" 2>&1 \
             | tee ios-call-media.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
@@ -298,8 +347,12 @@ jobs:
         # 被划掉之后被叫醒（PushKit）那一条在这层验不了，用例会明确说出来。
         run: |
           set +e
+          # 清场（与②同一个理由：上一条卡住会连累这一条）
           xcrun simctl terminate "$SIM" cc.gracelink.im >/dev/null 2>&1 || true
-          flutter test integration_test/ios_callkit_smoke_test.dart -d "$SIM" 2>&1 \
+          xcrun simctl shutdown "$SIM" >/dev/null 2>&1 || true
+          xcrun simctl boot "$SIM" >/dev/null 2>&1 || true
+          bash tool/ci/clock.sh 1100 \
+            flutter test integration_test/ios_callkit_smoke_test.dart -d "$SIM" 2>&1 \
             | tee ios-callkit.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
@@ -323,7 +376,9 @@ jobs:
           xcrun simctl terminate "$SIM" cc.gracelink.im >/dev/null 2>&1 || true
           xcrun simctl shutdown "$SIM" >/dev/null 2>&1 || true
           xcrun simctl boot "$SIM" >/dev/null 2>&1 || true
-          flutter test integration_test/boot_smoke_test.dart -d "$SIM" 2>&1 | tee ios-smoke.log
+          # 这一步的上限是 25 分钟（它还要装包 + 起 App），墙钟定到 23 分 20 秒
+          bash tool/ci/clock.sh 1400 \
+            flutter test integration_test/boot_smoke_test.dart -d "$SIM" 2>&1 | tee ios-smoke.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
             # 行数特意放大：这条用例自己会打印 `[SMOKE] 落在=…` 这类线索行，
