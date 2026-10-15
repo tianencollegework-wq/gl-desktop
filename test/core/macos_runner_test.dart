@@ -363,6 +363,91 @@ void main() {
           contains('TrayIcon.shared.isReady'));
     });
   });
+
+  /// 2026-10-15：macOS CI 第一次真跑，**两个 job 全红**，原因就是下面两条写法 ——
+  /// 本机是 Windows（没有 Xcode，`flutter build macos` 直接说这个平台不在此机器上，
+  /// 本地连语法都过不了），所以这类错**在本地永远看不见**；而 CI 那一趟要等 8 分钟
+  /// （Release 那份还得先拉 Firebase 的 SPM 依赖）。把编译器会拒的这两个写法钉成红灯：
+  ///
+  /// * `AppInfoChannel.swift`：`result(<String, Any>[…])` —— 那是 Objective-C 的泛型写法，
+  ///   CI 报的是 `error: '<' is not a prefix unary operator`（一行代码引出五条错）；
+  /// * `ChildWindowChannel.swift`：`@objc private func windowWillClose` —— 这个名字正好
+  ///   撞上 NSWindowDelegate 的可选方法，CI 报
+  ///   `must be as accessible as its enclosing type`。
+  ///
+  /// 这不是通用的 Swift 检查（本机做不到），只是把**已经踩过的两个坑**变成红灯。
+  group('Swift 源码：本地编不了，所以在这里挡住编译器会拒的写法', () {
+    final swiftFiles = Directory('macos/Runner')
+        .listSync()
+        .whereType<File>()
+        .where((file) => file.path.endsWith('.swift'))
+        .toList()
+      ..sort((a, b) => a.path.compareTo(b.path));
+
+    /// 只留代码，砍掉 `//` 后面的部分：**注释里写什么编译器都不管**，
+    /// 而上面那两段说明文字里恰恰要原样引一遍错的样子（不砍的话自己撞自己）。
+    List<String> codeLines(String path) => read(path).split('\n').map((line) {
+          final at = line.indexOf('//');
+          return at >= 0 ? line.substring(0, at) : line;
+        }).toList();
+
+    test('Runner 下的 .swift 都扫到了（上面「都进编译清单」那条也靠这份名单）', () {
+      expect(
+        swiftFiles.map((file) => file.uri.pathSegments.last),
+        containsAll(<String>[
+          'AppDelegate.swift',
+          'AppInfoChannel.swift',
+          'ChildWindowChannel.swift',
+          'MainFlutterWindow.swift',
+          'TrayIcon.swift',
+        ]),
+      );
+    });
+
+    test('没有把 Objective-C 的泛型写法写进 Swift（`<T, U>[…]`）', () {
+      final offenders = <String>[];
+      for (final file in swiftFiles) {
+        final lines = codeLines(file.path);
+        for (var i = 0; i < lines.length; i++) {
+          // 类型名（String / Any / NSNumber 这种，允许带点）后面紧跟一个 [
+          if (RegExp(r'<[A-Za-z][\w.]*\s*,\s*[A-Za-z][\w.]*>\s*\[')
+              .hasMatch(lines[i])) {
+            offenders.add('${file.path}:${i + 1}');
+          }
+        }
+      }
+      expect(
+        offenders,
+        isEmpty,
+        reason: 'Swift 没有 <T, U>[…] 这个写法（字典直接写字面量就行）：'
+            '${offenders.join('、')}',
+      );
+    });
+
+    test('声明了 Delegate 一致性的文件里，@objc 方法不是 private', () {
+      // AppKit 的委托协议都是 @objc：它的见证方法必须至少和类型一样可见。
+      // TrayIcon 里那两行 `@objc private func`（菜单项的 target/action）不在这个
+      // 范围内 —— 那个文件没声明任何 Delegate 一致性，所以这里按文件判。
+      final offenders = <String>[];
+      for (final file in swiftFiles) {
+        final source = codeLines(file.path).join('\n');
+        final conforms =
+            RegExp(r'\bclass\s+\w+[^{]*?\b\w*Delegate\b').hasMatch(source);
+        if (!conforms) continue;
+        for (final match in RegExp(r'@objc\s+(private|fileprivate)\s+func')
+            .allMatches(source)) {
+          offenders.add('${file.path} → ${match.group(0)}');
+        }
+      }
+      expect(
+        offenders,
+        isEmpty,
+        reason: '@objc 协议的见证方法不能是 private/fileprivate'
+            '（去掉可见性修饰，或那个类本来就不该声明这个 Delegate）：'
+            '${offenders.join('、')}',
+      );
+    });
+  });
 }
 
 /// 一张图里我们关心的几个比例（与 `branding_test.dart` 的 `_stats` 同一个手法）

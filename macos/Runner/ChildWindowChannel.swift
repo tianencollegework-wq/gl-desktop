@@ -194,7 +194,22 @@ final class ChildWindowChannel: NSObject, NSWindowDelegate {
     window.close()
   }
 
-  @objc private func windowWillClose(_ notification: Notification) {
+  /// 窗已经真的关掉了：撤掉兜底计时器，把这份登记销掉
+  /// （`NSWindow` 对象会被系统复用，不销的话下一扇建在同一个地址上的窗
+  /// 会被 `attach` 当成「已经挂过」直接跳过）。
+  ///
+  /// **两条路都会走到这里**：一是在 `init` 里注册的 `willCloseNotification` 通知，
+  /// 二是 AppKit 把 `windowWillClose(_:)` 当成 `NSWindowDelegate` 的委托方法回调
+  /// —— 这个名字正好就是那个协议的可选方法之一。所以这段**必须是幂等的**，
+  /// 重复跑到也只是把已经为 nil 的计时器再 invalidate 一次。
+  ///
+  /// ⚠️ 也正因为它同时是 @objc 协议的见证方法，**不能写成 `private`**：
+  /// @objc 协议要求见证方法至少和实现它的类型一样可见。CI 原话：
+  /// `error: method 'windowWillClose' must be as accessible as its enclosing type
+  /// because it matches a requirement in protocol 'NSWindowDelegate'`。
+  /// （本机是 Windows，编不了 macOS —— 这类错只能到 CI 才发现，所以
+  /// `test/core/macos_runner_test.dart` 里加了一条静态守卫把它挡住。）
+  @objc func windowWillClose(_ notification: Notification) {
     graceTimer?.invalidate()
     graceTimer = nil
     ChildWindowChannel.attached[ObjectIdentifier(window)] = nil

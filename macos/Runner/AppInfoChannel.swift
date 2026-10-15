@@ -48,7 +48,11 @@ enum AppInfoChannel {
           ))
         return
       }
-      result(<String, Any>["name": name, "code": code])
+      // ⚠️ 不能写成 `result(<String, Any>[…])` —— 那是 **Objective-C** 的泛型写法，
+      // Swift 里报的是一串看不懂的错（CI 原话：`error: '<' is not a prefix unary operator`），
+      // 因为 `result` 收的本来就是 `Any?`，字典直接写字面量即可。
+      let payload: [String: Any] = ["name": name, "code": code]
+      result(payload)
     }
     channels.append(channel)
   }
