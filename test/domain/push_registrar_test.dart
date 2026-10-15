@@ -39,14 +39,23 @@ class _FakeSource implements PushTokenSource {
 ///  * 拿不到标识 / 上报失败都要**安静收场**，不能影响登录与收发消息。
 void main() {
   late String? stored;
+  late String? voipStored;
+  late String? voipReported;
   late List<String> reported;
   late List<String> logs;
   late _FakeSource source;
 
+  /// 现在能不能上报。`false` = 未登录 / 没有 client_id / 网络不通：
+  /// `report` 会回 false（= 没交出去），调用方**不该记账**。
+  late bool canReport;
+
   setUp(() {
     stored = null;
+    voipStored = null;
+    voipReported = null;
     reported = <String>[];
     logs = <String>[];
+    canReport = true;
     source = _FakeSource();
   });
 
@@ -54,7 +63,15 @@ void main() {
     source: source,
     readCid: () => stored,
     saveCid: (cid) async => stored = cid,
-    report: (cid) async => reported.add(cid),
+    report: (cid) async {
+      if (!canReport) return false;
+      reported.add(cid);
+      return true;
+    },
+    readVoipCid: () => voipStored,
+    saveVoipCid: (cid) async => voipStored = cid,
+    readVoipReported: () => voipReported,
+    saveVoipReported: (cid) async => voipReported = cid,
     log: logs.add,
   );
 
@@ -150,6 +167,114 @@ void main() {
 
     expect(stored, 'fcm:tok-1', reason: '本地已经落了盘，下次连上再报');
     expect(logs.join(), contains('登记设备标识失败'));
+  });
+
+  // ── iOS 上那条**另外算账**的标识（S8.2）─────────────────────────────────
+  // 它与上面那个 `cid` 不是同一件事：这条是 PushKit 给的，只有它能弹出锁屏来电
+  // 界面、也只有它能在 App 被划掉之后把进程叫醒。服务端按前缀把它们当两台设备。
+  group('VoIP 标识（apns_voip）', () {
+    test('首次登记：落盘 + 上报 + 记下「服务端收过了」', () async {
+      await build().applyVoip('tok-voip-1');
+
+      expect(voipStored, 'apns_voip:tok-voip-1');
+      expect(reported, <String>['apns_voip:tok-voip-1']);
+      expect(voipReported, 'apns_voip:tok-voip-1');
+    });
+
+    test('服务端已经收过这条：不重复上报', () async {
+      voipStored = 'apns_voip:tok-voip-1';
+      voipReported = 'apns_voip:tok-voip-1';
+
+      await build().applyVoip('tok-voip-1');
+
+      expect(reported, isEmpty);
+      expect(logs.join(), contains('服务端已经收过了'));
+    });
+
+    test('标识换了（重装 App）：再报一次', () async {
+      voipStored = 'apns_voip:tok-voip-1';
+      voipReported = 'apns_voip:tok-voip-1';
+
+      await build().applyVoip('tok-voip-2');
+
+      expect(voipStored, 'apns_voip:tok-voip-2');
+      expect(reported, <String>['apns_voip:tok-voip-2']);
+    });
+
+    test('未登录时那一次没交出去：本地存下、不记账；登录后（ensure）补报', () async {
+      // 真机上最常见的那条路：PushKit 的标识比登录先到（约 1 秒就到），
+      // 那时还没有 user / client_id —— 以前这一下会把「本地存过」当成「报过了」，
+      // 于是服务端永远没有 apns_voip 那一行（锁屏来电一直不弹，日志里却不像出错）。
+      canReport = false;
+      final registrar = build();
+      await registrar.applyVoip('tok-voip-1');
+
+      expect(voipStored, 'apns_voip:tok-voip-1', reason: '本地要存下，不然连重报的本钱都没有');
+      expect(reported, isEmpty);
+      expect(voipReported, isNull, reason: '没交出去就不能记成「服务端收过了」');
+
+      // 用户登录 / 连接就绪 —— `ensure()` 是 `session_service` 在那两个时刻调的
+      canReport = true;
+      source.token = null;
+      await registrar.ensure();
+
+      expect(reported, <String>['apns_voip:tok-voip-1']);
+      expect(voipReported, 'apns_voip:tok-voip-1');
+    });
+
+    test('补报过的不会再补（ensure 会被调很多次）', () async {
+      voipStored = 'apns_voip:tok-voip-1';
+      final registrar = build();
+
+      await registrar.ensure();
+      await registrar.ensure();
+
+      expect(reported, <String>['apns_voip:tok-voip-1']);
+    });
+
+    test('空 token（模拟器 / 原生还没拿到）：一步都不走', () async {
+      await build().applyVoip('');
+
+      expect(voipStored, isNull);
+      expect(reported, isEmpty);
+    });
+
+    test('没注入 VoIP 回调（桌面 / 安卓）：空操作', () async {
+      final registrar = PushRegistrar(
+        source: source,
+        readCid: () => stored,
+        saveCid: (cid) async => stored = cid,
+        report: (cid) async {
+          reported.add(cid);
+          return true;
+        },
+        log: logs.add,
+      );
+
+      await registrar.applyVoip('tok-voip-1');
+      await registrar.retryVoip();
+
+      expect(reported, isEmpty);
+    });
+
+    test('上报抛异常也不会炸出去（登记失败不能挡通话本身）', () async {
+      final registrar = PushRegistrar(
+        source: source,
+        readCid: () => stored,
+        saveCid: (cid) async => stored = cid,
+        report: (cid) async => throw StateError('网络没了'),
+        readVoipCid: () => voipStored,
+        saveVoipCid: (cid) async => voipStored = cid,
+        log: logs.add,
+      );
+
+      await registrar.applyVoip('tok-voip-1');
+      // 补报那条也一样：异常不能漏出去
+      await registrar.retryVoip();
+
+      expect(voipStored, 'apns_voip:tok-voip-1', reason: '本地已经落了盘，下次连上再报');
+      expect(logs.join(), contains('登记 VoIP 标识失败'));
+    });
   });
 
   test('短标识函数：完整 token 不出现在日志里', () {

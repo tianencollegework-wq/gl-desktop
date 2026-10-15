@@ -92,6 +92,13 @@
 		     它把 App 拉进后台、由 firebase_messaging 的后台 isolate 把通知画出来
 		     （见 lib/core/notify/push_background.dart）。 -->
 		<string>remote-notification</string>
+		<!-- **VoIP 推送（PushKit）**：2026-10-15 加，与系统来电界面（CallKit）一起上。
+		     它管的是「App 已经被划掉之后，别人打电话还能把你叫醒」—— 锁屏来电那条路。
+		     苹果官方把这一项列在 Configuring background execution modes 里
+		     （Voice over IP → voip）；网上「iOS 13 之后不必再声明」是把两件事搞混了：
+		     iOS 13 改的是「收到 VoIP 推送必须**立刻**报给 CallKit」，不是取消这个模式。
+		     不声明它，PushKit 就收不到 VoIP 推送（而那种失败在客户端是静默的）。 -->
+		<string>voip</string>
 	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>

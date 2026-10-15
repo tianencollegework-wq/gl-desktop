@@ -74,7 +74,13 @@ class FcmPushTokenSource implements PushTokenSource {
   /// 允许测试注入；真机上是 [FirebaseMessaging.instance]（在 Firebase 初始化之后才可用）
   final FirebaseMessaging? messaging;
 
-  static const String providerId = 'fcm';
+  /// 这个平台上 FCM 那条通道的登记名。
+  ///
+  /// iOS 用 `fcm_ios` 而不是 `fcm`（S8.2）：**同一条 FCM 通道在 iPhone 上只能弹
+  /// 一条普通通知**，服务端靠这个前缀把「一通新来电」从这条路排除（那个界面由 VoIP
+  /// 推送画，两条一起发就是锁屏上同时出现系统来电界面 + 一条通知）。
+  /// 安卓那边照旧 `fcm` —— 它的来电界面是客户端自己画的全屏通知，得照常收。
+  static String get providerId => Platform.isIOS ? 'fcm_ios' : 'fcm';
 
   /// 初始化结果：null = 还没试过。**失败也缓存**：缺 google-services.json 这类
   /// 问题不会自己变好，每次收到消息都重试一遍只会刷日志。
@@ -145,3 +151,16 @@ PushTokenSource defaultPushTokenSource() =>
 final pushTokenSourceProvider = Provider<PushTokenSource>(
   (ref) => defaultPushTokenSource(),
 );
+
+/// iOS 上「**来电专用**」那条通道的登记名（与服务端 `ApnsVoipProvider::NAME` 一致）。
+///
+/// 它与 [FcmPushTokenSource.providerId] 是**两条不同的登记**：
+///   * `fcm_ios:` —— 普通消息通知（FCM 经 APNs 投递）；
+///   * `apns_voip:` —— 一通**新来电**（APNs 直连 + VoIP topic）。
+///
+/// 只有后者能在**锁屏上画出系统来电界面**，也只有它能在 App 被用户划掉之后
+/// 把进程叫醒（苹果那条硬限制：普通推送叫不醒被划掉的 App）。
+const String voipPushProvider = 'apns_voip';
+
+/// 把 PushKit 给的 token 拼成上报给服务端的形态（`apns_voip:xxxx`）
+String voipCidOf(String token) => '$voipPushProvider:$token';

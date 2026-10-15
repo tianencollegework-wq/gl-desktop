@@ -26,8 +26,16 @@
    剩下没验的是「真机行为」那一类（音频会话能不能真把进程撑住、锁屏、FCM 经 APNs），
    第十一节照实列着。
 4. **买号之后的第一件事是「签名 + 上传」，不是写代码**：CI 已经把「能编、能起、通话链
-   活着」验完了，剩下的只有证书与描述文件那一道 —— 过了这一步，往上加的就是
-   CallKit 来电界面那一层（那才是 iOS 上真正缺的大功能）。
+   活着」验完了，剩下的只有证书与描述文件那一道。
+5. **CallKit 来电界面那一层 2026-10-15 写完了**（第六节第 2 项）：Dart 侧「什么时候
+   把它交给系统、什么时候收回来」（[call_push_host.dart](lib/features/call/call_push_host.dart)）、
+   原生那侧 `CallKitBridge`（`AppDelegate.swift` 里，含 PushKit）、`Info.plist` 的 `voip`
+   后台模式都在了，Dart 那层用 19 条用例钉着（`test/core/callkit_test.dart` 11 条钉接口契约，
+   `test/features/call_system_ui_test.dart` 8 条钉「什么时候报 / 什么时候收尾」，
+   另加 `test/core/ios_runner_test.dart` 里那几条盯着 Swift 源码里该有的东西在不在）。
+   **但它离「能用了」还差三样**：服务端那条 VoIP 推送（第六节第 3 项）、VoIP 证书、
+   一台 iPhone —— 现在报给系统的那些通话，在锁屏上还弹不出任何东西（CallKit 不在
+   模拟器上跑，这是苹果的事）。
 
 ---
 
@@ -65,8 +73,10 @@
      `google-services.json` 不一样**：它不含密钥，苹果那边本来就是明文分发）；
    - 项目设置 → 云消息 → APNs 认证密钥：上传 `.p8`（在苹果后台 Keys 里建，
      勾 Apple Push Notifications service），填 Key ID 与 Team ID。
-   - 服务端那边**不用改**：iOS 走 FCM 的 token（`cid` 里还是 `fcm:` 前缀），
-     由 FCM 转成 APNs 投递（见第七节）。
+   - 服务端那边**不再「不用改」**了（2026-10-15 起）：普通消息仍走 FCM 的 token，
+     但**来电**走另一条直连通道 —— 同一把 `.p8` 还要填进服务端的 `[PUSH]` 段
+     （`APNS_KEY_FILE` / `APNS_KEY_ID` / `APNS_TEAM_ID`，见 `REFACTOR_PLAN` 的 S12.47
+     与补丁里的《部署说明.md》）。标识也分开了：普通通知是 `fcm_ios:`、来电是 `apns_voip:`。
 4. ~~**跑一次 CI**：GitHub → Actions → 「iOS 构建与自检」→ Run workflow。
    绿了再往下做 CallKit；红了就先修红 —— 在那之前写更多 iOS 代码都是赌。~~
    **2026-10-15 已绿**（第 12 跑）：这一步之后，剩下的只有「签名 + 上传」。
@@ -81,14 +91,14 @@
 |---|---|---|
 | 通话期间不被冻住 | `CallForegroundService` 前台服务 + 常驻通知 | `UIBackgroundModes: audio` + **激活的 `AVAudioSession`**（`IosCallKeepAlive`）；被打断（来电 / 闹钟 / Siri）后**自己恢复**，见第五节最后一条。〔2026-10-15：start / stop / isRunning 已在模拟器上验；「中断后自己恢复」仍未验〕 |
 | 灵听切后台继续响 | `audio_service` 前台服务 | `audio_session` 把会话设成 `playback` 并激活（`AudioSessionConfigurator`，2026-10-14 补） |
-| 来电响铃 / 接听界面 | 全屏通知 + `setShowWhenLocked` | **没有**（要 CallKit + PushKit，见第六节） |
+| 来电响铃 / 接听界面 | 全屏通知 + `setShowWhenLocked` | **接线做完了（2026-10-15），还没在真机上弹出来过**：App 不在屏幕上时收到来电 → 报给 CallKit（锁屏那个界面由系统画）；用户在系统界面上按接听 / 挂断 → 真正动的是我们这套状态机。见第五节的 CallKit 那一段 |
 | 后台收到消息 | FCM 数据消息 → 后台 isolate 画通知 | 同一条路（FCM 经 APNs 投递），**但进程被用户划掉以后收不到**（苹果的硬限制） |
 | 通知权限 | `POST_NOTIFICATIONS`（13+ 运行时权限） | `UNUserNotificationCenter` 授权框 |
 | 「去系统设置」 | 应用详情页 / 通知设置页 / 电池优化页三个入口 | 只有 `openSettingsURLString`（本应用设置页）一个入口 |
 | 电池优化白名单 | 有（不申请就会掉线） | **不存在**这个概念（恒 true，不显示那条提示） |
 | 画中画 | 系统 PiP（`enterPipNow`） | 没有（要 `AVPictureInPictureController` + 一层视频视图） |
 | 屏幕共享 | `MediaProjection` | 没有（要 ReplayKit 的广播扩展，且审核要额外说明） |
-| 通话窗口盖锁屏 | `setCallScreenMode` | 没有（那是 CallKit 的事） |
+| 通话窗口盖锁屏 | `setCallScreenMode` | **一半**：报给 CallKit 的那一通，锁屏由系统画（那就是它存在的理由）；而我们**自己那张通话页**在 iPhone 上仍然盖不住锁屏（那是 CallKit 的界面，不是我们的） |
 | 系统媒体卡片（灵听） | `audio_service` 的媒体通知 | `audio_service` 的 darwin 那份（Now Playing / 锁屏 / 耳机键）；**后台播放要会话分类配合，见第六节** |
 
 ---
@@ -97,8 +107,9 @@
 
 **工程配置**（`ios/`）
 * `Runner/Info.plist`：五条权限文案（相机 / 麦克风 / 相册读 / 相册写 / 本地网络）、
-  `UIBackgroundModes = audio + remote-notification`（**故意没有 voip**，那是 PushKit 的，
-  一起做时再加）、`ITSAppUsesNonExemptEncryption = false`（免掉每次上传的出口合规问答）、
+  `UIBackgroundModes = audio + remote-notification + **voip**`（voip 是 2026-10-15 与
+  CallKit 一起加的：PushKit 靠它才能收到 VoIP 推送。网上「iOS 13 之后不必再声明」
+  是把两件事搞混了 —— iOS 13 改的是「收到就必须立刻报给 CallKit」，不是取消这个模式）、`ITSAppUsesNonExemptEncryption = false`（免掉每次上传的出口合规问答）、
   七种语言的 `CFBundleLocalizations`（iOS 只认这里）、`NSAllowsLocalNetworking`
   （开发时连局域网用 http）、`tel` / `app-settings` 进 `LSApplicationQueriesSchemes`。
 * `Runner/Runner.entitlements`（新）：`aps-environment = development`，三份构建配置都接上。
@@ -136,6 +147,30 @@
   之后视频通话不再外放」那种只有真机能发现的错）；挂断时摘掉观察者。
   修好之前的表现是：**被来电打断一次，这通电话就静默变哑，而诊断面板还说保活正常**。
   投屏与类型位那两条**故意回 notImplemented**（iOS 上没有这种东西，不假装成功）。
+* **`gracelinkim/callkit`：系统来电界面（CallKit + PushKit，2026-10-15 加）** ——
+  `CallKitBridge`（同一个文件里）：
+  - **Dart → 原生**：`isAvailable` / `reportIncomingCall`（`CXProvider.reportNewIncomingCall`，
+    回执是异步的：`ok` / `reason` / `alreadyReported` —— 同一通重复报**绝不再弹一次**，
+    否则锁屏上是两条一模一样的来电）/ `reportEnded`（`reportCall endedAt:`，结束原因
+    映到系统认的那几种：`declinedElsewhere` / `unanswered` / `failed` / `remoteEnded`）/ 
+    `takePendingCall`（App 被 VoIP 推送叫醒时 Dart 还没起来，报文先存在原生那儿，取一次清掉）/ 
+    `voipToken` / `lastError`（失败原话，诊断面板用）；
+  - **原生 → Dart**：**同一条通道反方向**调 `action`（`kind` = answer / end /
+    incoming / token）—— `CXProviderDelegate` 的接听（`CXAnswerCallAction`）、挂断
+    （`CXEndCallAction`）与「系统把通话整个重置了」（`providerDidReset`，当成一次 end）
+    都从那里上去；**接电话的是我们的状态机**，原生只管那个界面
+    （还有一条反方向的判定：那条报文只在 Dart **真的收下**之后才从暂存里清掉）；
+  - **PushKit**：`PKPushRegistry`（`voip` 类型）注册在前台启动时；token 到了回调 Dart；
+    收到 VoIP 推送**就地**报给 CallKit（苹果的硬规则，iOS 13 起：先去别处转一圈再报，
+    这条推送就算滥用，系统会掐掉 App）。`completion` 收在一只「只放行一次」的盒子里
+    （回执 + 5 秒兜底），绝不漏调、也不调两次；报完再 `sendAction("incoming")` 叫醒
+    已经活着的 Dart，**Dart 收下了才把暂存报文清掉**（不然下次冷启动会把这通早挂了的
+    电话又接一遍）；
+  - **音频会话交给系统**：`didActivate audioSession` 里复用保活那条 `CallAudioSession.apply()`
+    （分类 `playAndRecord`），`didDeactivate` 如实关掉 —— 不关的话「麦克风正在使用」
+    那个点会一直亮着；
+  - `CXProviderConfiguration`：语音 / 视频都支持，`maximumCallsPerCallGroup` 与
+    `maximumCallGroups` 都是 1（多人通话那个界面还没做）；handle 用 uid（取不到回退昵称）。
 * 通道挂在 `engineBridge.applicationRegistrar` 上（引擎给「应用级通道」留的那条路，
   不是借插件的注册表）。
 
@@ -157,6 +192,20 @@
   那一道是真的 → 红提示条与「设置 › 通知」那一行在 iPhone 上同样成立）。
 * `call_keep_alive_notification_row.dart` 改成按平台判（那条「通话中」的常驻通知是安卓独有的）、
   `call_keep_alive_self_check.dart` 的自检说明按平台分开写。
+* `lib/core/platform/callkit.dart`（新，2026-10-15）：CallKit 的 Dart 接口 + `IosCallKit`
+  + `NoopCallKit`（非 iOS 上是彻底的空操作），provider 按平台分流；
+  `takePendingCall` /`voipToken` / `lastError` 都收成「失败就回空串 / 空值」，
+  不让平台通道上的意外把整条链带倒。
+* `lib/features/call/call_push_host.dart`（改，2026-10-15）：**「什么时候把它交给系统」
+  那套判断**都在这儿：App 不在屏幕上（`lifecycleState != resumed`）且会话处于
+  `incoming` → 报一次；同一通只报一次（拿 `messageId` 去重）；一旦不再活跃（接听 / 挂断 /
+  超时 / 被换成另一通）→ `reportEnded` 收尾 —— 不收的话锁屏上那个界面会一直挂着。
+  系统那侧按的接听 / 挂断回到 `CallController.accept()` / `hangup()`；冷启动时
+  报文从 `takePendingCall()` 取回来。
+  ⚠️ 这里顺手修掉一个真 bug：监听原先在 `initState` 里挂一次，而
+  `callControllerProvider` **会随登录 / 登出重建** —— 挂在旧实例上的监听从此再也不响，
+  表现是「登录之后收到来电，系统界面不弹、通知也收不掉」。现在改成每帧盯
+  `ref.watch` 当前那个控制器（`_attach`，幂等）。
 
 **检查与文档**
 * `test/core/ios_runner_test.dart`（新，20 条）：把上面每一条配置都钉住 —— 权限文案不能少、
@@ -169,6 +218,21 @@
 * `test/lingting/lingting_player_test.dart`（+5 条，2026-10-14）：钉住接线本身，尤其是
   **顺序**（`['music', 'startEngine']` —— 分类必须在出声**之前**生效）与「会话设不上
   也不影响播放」。
+* `test/core/callkit_test.dart`（新，11 条，2026-10-15）：这一层的契约 ——
+  参数怎么传（`callId` / `peerName` / 语音还是视频 / payload）、
+  报失败**不抛**只带回原因、`takePendingCall` 只交一次、事件通道把系统的动作叫醒监听表、
+  非 iOS 上是空操作。
+* `test/features/call_system_ui_test.dart`（新，8 条，2026-10-15）：**报给系统的时机**，
+  这是最容易被写错、而且在模拟器上永远看不出错的一段：后台收到来电要报、
+  **前台不报**（再叠一层系统界面等于同一通电话响两次、两个接听键）、同一通只报一次、
+  报失败不抛、系统界面上按接听真的发出 `acceptRtc`、冷启动那条报文接得起来、
+  对端挂断与本机挂断都要收尾。
+* `integration_test/ios_callkit_smoke_test.dart`（新，2026-10-15）：设备/模拟器上的自检 ——
+  通道在不在、上报不会「既没成功也没原因」、能报成时不报两次。它**故意不把
+  「来电真的弹出来了」当判据**：模拟器上 CallKit 不工作，写死就是一条永久红。
+* `test/core/ios_runner_test.dart` 里新增那几条：`UIBackgroundModes` 必须有 `voip`、
+  `AppDelegate.swift` 里 PushKit 回调必须在**同一轮回调里**报给 CallKit、
+  `gracelinkim/callkit` 的每个方法名都要与 Dart 侧对得上。
 * `tool/audit/ios_support.js`（新）：读 pub 缓存列出每个依赖的 iOS 支持与**最低 iOS 版本**
   （`IPHONEOS_DEPLOYMENT_TARGET` 就是照着它的输出定的）。
 * `.github/workflows/ios.yml`（新）：macOS runner 上编译（不签名）+ 模拟器真启动 + 截图。
@@ -182,8 +246,8 @@
 | # | 事 | 价值 | 依赖 | 估时 |
 |---|---|---|---|---|
 | 1 | ~~**让 CI 跑绿一次**（编得过 + 模拟器起得来）~~ **2026-10-15 已绿**（第 12 跑） | 把「应该能跑」变成「确实能跑」 | 无 | 做完了 |
-| 2 | **CallKit + PushKit 来电界面** | iPhone 上锁屏来电只有它是"系统级"的；现在只能靠一条普通通知 | 账号（VoIP 推送证书）+ 真机 | 4–7 天 |
-| 3 | 服务端 VoIP 推送那条链 | 上面那条的一半（APNs VoIP topic、payload 形状） | 同上 + 服务端改 | 2–3 天 |
+| 2 | ~~**CallKit + PushKit 来电界面**~~ **2026-10-15 接线写完**（Dart + Swift + `voip` 后台模式，见第五节；19 条 Dart 用例钉着。**但还在模拟器上弹不出来** —— 那是苹果的事）。剩下：VoIP 证书 + 真机验 | iPhone 上锁屏来电只有它是"系统级"的；现在只能靠一条普通通知 | 真机（+ 后一项的证书） | 接线已完，真机验收 1 天 |
+| 3 | ~~服务端 VoIP 推送那条链~~ **2026-10-15 写完了**（APNs 直连 + VoIP topic + 客户端上报 `apns_voip:`，见 `REFACTOR_PLAN` S12.47；补丁在 `gracelinkim-server-patch-20261015-voip-push`）。剩下的是**部署 + 真机验收** | 上面那条的一半（APNs VoIP topic、payload 形状）；没它时第 2 项写完了也弹不出来 | 账号（建一把带 VoIP 权限的 `.p8`）+ 一台 iPhone | 接线已完，验收 1 天 |
 | 4 | ~~灵听在 iOS 的后台播放（`audio_session` 会话分类）~~ **2026-10-14 已写**（`AudioSessionConfigurator`；但 iPhone 上还没试过） | 修好前切后台音乐会被系统停（安卓有前台服务撑着） | 无 | 做完了 |
 | 5 | 画中画（AVPictureInPictureController） | 通话切出去还能看着对方 | 真机 | 3–5 天 |
 | 6 | 屏幕共享（ReplayKit 广播扩展） | 群里那个功能补齐 | 账号（App Extension）+ 真机 | 3–5 天 |
@@ -193,7 +257,19 @@
 **为什么它原先排第一位，以及现在为什么可以往下走了**：那几项都要动 Swift，而当时这份
 Swift 一行都没编译过 —— 在没验证的地基上加代码，只会把「一次修十个错」变成「一次修三十个」。
 2026-10-15 首绿之后，地基从「照文档写」变成了「编过、模拟器上跑过」，第 2 项（CallKit）
-可以开工 —— **它是 iOS 上唯一还缺一大块的地方**。
+当天就开工并写完了接线 —— **它是 iOS 上唯一还缺一大块的地方**。
+
+**第 2 项「写完了」不等于「能用了」，三件事分开记**：
+1. **接线**：写完了。判据在 Dart 那 19 条用例里（报的时机 / 去重 / 收尾 / 接听回到状态机 /
+   冷启动），以及 `ios_runner_test.dart` 盯着的源码事实（`voip` 模式、推送回调里立刻上报）。
+2. **服务端**（第 3 项）：~~没做~~ **2026-10-15 写完了（S12.47）**：APNs 直连（VoIP topic）
+   那条通道、`accepts` 分发门、以及客户端把 `apns_voip:` 标识上报上去这三件事都做了，
+   自检 171 项 + 补丁自检 44 项全绿。但**一次都没真推到苹果**（没有 `.p8`、没有真机）——
+   所以「部署完之后手机上到底弹不弹」仍然要看第十一节第 11 条。
+3. **真机**：没验。CallKit 在模拟器上不跑（`reportNewIncomingCall` 必回错误）——
+   所以「锁屏上到底弹不弹、接听键按了之后音频对不对」只有一台 iPhone 能答。
+   模拟器上能验的是「通道在、上报失败会带回原因而不是静默」
+   （`integration_test/ios_callkit_smoke_test.dart`）。
 
 ---
 
@@ -214,8 +290,22 @@ Swift 一行都没编译过 —— 在没验证的地基上加代码，只会把
 
 ---
 
-## 八、CI（`.github/workflows/ios.yml`）
+## 八、CI（`.github/workflows/ios.yml` 与 `ios-live-call.yml`）
 
+* **「真拨一通」那条**（`.github/workflows/ios-live-call.yml`，2026-10-15 加）：与上面那条
+  刻意分开的**手动**流水线（`workflow_dispatch` 或推一个 `live-call-v*` tag）——
+  它每次都**真的打一通电话**，接的是人，所以不能自动跑。它干的是同一件事：
+  云 Mac + iPhone 模拟器当主叫，真人的手机当被叫，判据是「状态机进 `connected`」+
+  「媒体收发字节 > 0」（只能证明「拨出去了」的那一层不算）。凭据走四个 Secret，
+  本文件与用例里**没有任何一个真值**。
+* **中转自检一条**（2026-10-15 加）：`integration_test/call_relay_smoke_test.dart` —— 两边
+  都只许走中转（`iceTransportPolicy: relay`）时，媒体到底过不过得去。它**不需要人接**
+  （两个端点都是同一个进程里的连接），所以它不是拨号那条的附属品，而是一件能天天跑的事：
+  判据是「候选全是 `typ relay`」+「真的 `connected`」+「数据通道来回一趟」+「选中那一对是
+  `relay→relay`」，有麦克风再加一条「音频双向都有字节」。**它排在拨号之前**：
+  中转是断的，就该在响人家手机之前红。只想跑它时选 `relay_only = yes`。
+  为什么不在 `ios.yml`：它要账号（TURN 凭据要登录态），靠 `LIVE_TEST_*` 那两个 Secret，
+  放进 `ios.yml` 只会变成一条永远 SKIP 的步骤。
 * `build-ios`：`flutter analyze` + `flutter test` + `flutter build ios --release --no-codesign`
   + 打印产物里的版本号 / 后台模式 / 权限文案（**配错了那里就是空的**）。
 * `simulator-smoke`：动态挑一台 iPhone 模拟器 → `flutter test integration_test/boot_smoke_test.dart -d <UDID>`
@@ -244,6 +334,12 @@ Swift 一行都没编译过 —— 在没验证的地基上加代码，只会把
 | **取麦克风真的能取到** | `音频输入设备：1 个` → `getUserMedia（要权限的那一步）：388ms` → `取流 OK tracks=1` |
 | 起得来、到得了登录页 | iOS 18.5（22F77），`落在=登录页，耗时=2s，仍停在启动页=false` |
 | 模拟器截图 | `ios-simulator.png`（1206×2622，跑完用例之后拍的，多半是桌面） |
+
+**中转那条自检（2026-10-15 加）**：它在 Windows 真机上先跑过一遍 —— 服务端签发
+两条（STUN 一条 + 带账号的 `turn:` 六条），八条候选**全是 `typ relay`**、没有一条直连，
+选中那一对 `relay→relay`，503ms 连上、数据通道一个来回 291ms、RTT 41ms（原话见
+`REFACTOR_PLAN.md` 的 S12.45）。**它在 iOS 模拟器上还没跑过** —— 那一天要等下一次
+`iOS 真拨一通`（选 `relay_only = yes`，产物里的 `relay.log` 就是它的现场）。
 
 顺带两条从这份日志里读出来、原先没人知道的：
 * SPM 警告 `open_filex` 不支持 Swift Package Manager（第六节新加的第 8 项）；
@@ -315,6 +411,27 @@ Swift 一行都没编译过 —— 在没验证的地基上加代码，只会把
    那几张），CI 现在也会截一张模拟器的图（`ios-simulator.png`）—— 但那张是**跑完用例
    之后**拍的（App 已经收了，多半是桌面），当参考可以，**不算验收**。真机上桌面上大小
    合不合适、启动那一下闪不闪，还是没人看过。
+9. **CallKit 那一层只在一只「假通道」上验过，真设备上一次都没跑过**（2026-10-15 写）：
+   19 条 Dart 用例验的是接线与时机（用一个 `FakeCallKit` 记下报了哪几通），而 CallKit 本身
+   **在模拟器上不工作**（苹果没在模拟器里实现它），所以 `reportIncomingCall` 在真设备上的
+   回执必然也是失败 —— 这一点已经写进用例的预期（判据是「要么成功、要么带回一条非空原因」，
+   而不是「一定弹得出来」）。因此下列事实**全部未验**：那个界面长什么样、接听键按下之后
+   系统真的把音频交给我们了吗、被划掉 App 之后 VoIP 推送真能叫醒吗、
+   `CXProviderDelegate` 那几个回调在真机上的时序。另外两件不靠真机就能说的缺口：
+   服务端那条 VoIP 推送没写，`voipToken()` 也没上报（第六节第 2、3 项）。
+10. **中转那条自检在 iOS 上还没跑过**（2026-10-15 加的，见第八节）：它的判据先在
+   **Windows 真机**上过了（候选全是 relay、`relay→relay`、数据通道 291ms 一个来回），
+   而 iOS 那侧走的是同一段 Dart、同一份插件配置键（`iceTransportPolicy` 在
+   `FlutterWebRTCPlugin.m` 里有解析）—— 但**「同一段代码」不是证据**。
+   下一次 `iOS 真拨一通`（选 `relay_only = yes`）会给它：`relay.log` 作为产物。
+   同一件事的旁证是第八节那张表里 `取流 OK tracks=1` —— runner 的模拟器有麦克风，
+   所以那一步在 CI 上会真的把音频也过一遍，而不是跳过。
+11. **服务端的 VoIP 推送写完了，但一条都没真推出去过**（2026-10-15，S12.47）：
+   签名/请求头/报文/错误映射都有自检钉着（`tools/push_selftest.php` 共 171 项，
+   补丁自检 44 项），可是**没有 `.p8` 钥匙、没有真机** ——「苹果收下了没有、
+   手机上弹了没有」只有真机能答。部署与验收步骤见补丁里的《部署说明.md》。
+   另有一件只能在服务器上验的：那台机器的 **curl 有没有编 HTTP/2**（APNs 只收它），
+   没有的话日志里会明说，出路是配 `[PUSH] HTTP_PROXY`。
 
 ---
 
@@ -326,8 +443,12 @@ Swift 一行都没编译过 —— 在没验证的地基上加代码，只会把
 1. ~~**今天**：把仓库推上去 → 手点一次 `iOS 构建与自检` → 修它报出来的错
    （这一步不需要账号，也不需要你做什么 iOS 相关的决定）；~~ **2026-10-15 做完了**
    （第 12 跑）。在那之前能做的只剩「把没验的验掉」那一类（比如第六节第 8 项）；
-2. **12 月买号之后**：第三节那五步 → 内部 TestFlight 装到 iPhone 上 → 走一遍第十节；
-3. **然后**：CallKit + PushKit（第六节第 2、3 项）—— 那是 iOS 上唯一还"缺一大块"的地方，
-   也是「锁屏来电只能看到一条通知」这件事的解药；
+2. **12 月买号之后**：第三节那五步（多一步：苹果后台 Keys 里建一把带 **VoIP 推送**
+   权限的 `.p8`）→ 内部 TestFlight 装到 iPhone 上 → 走一遍第十节；
+3. **然后**：CallKit + PushKit（第六节第 2、3 项）—— iOS 上唯一还"缺一大块"的地方，
+   也是「锁屏来电只能看到一条通知」这件事的解药。**接线 2026-10-15 已经写完了**
+   （第五节、第六节），所以这一步剩下的是：服务端补一条 VoIP 推送 + 把 VoIP token
+   收上去（第 3 项）、拿真机把「锁屏弹出 → 按接听 → 真的说上话」走一遍。
+   顺序上先做服务端：没有它，真机上什么都看不见；
 4. 之后 iOS 与安卓共用同一条 `bump_version.dart` 发版链，多出来的只有
    「出 .ipa → 上传 TestFlight → 填 App Store Connect 的更新说明」三步。

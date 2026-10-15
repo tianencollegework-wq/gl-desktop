@@ -39,19 +39,25 @@ void main() {
   // 当成转义序列吃掉，`\s*` 变成 `s*` —— 正则于是去找一个真的字母 s，
   // 而且**不报错**：断言只会莫名其妙地拿到 null。（这个坑当场踩过一次。）
   String? plistString(String path, String key) => RegExp(
-    r'<key>' '$key' r'</key>\s*<string>([^<]*)</string>',
+    r'<key>'
+    '$key'
+    r'</key>\s*<string>([^<]*)</string>',
   ).firstMatch(readPlist(path))?.group(1);
 
   bool? plistBool(String path, String key) {
     final match = RegExp(
-      r'<key>' '$key' r'</key>\s*<(true|false)/>',
+      r'<key>'
+      '$key'
+      r'</key>\s*<(true|false)/>',
     ).firstMatch(readPlist(path));
     return match == null ? null : match.group(1) == 'true';
   }
 
   List<String> plistStrings(String path, String key) {
     final match = RegExp(
-      r'<key>' '$key' r'</key>\s*<array>(.*?)</array>',
+      r'<key>'
+      '$key'
+      r'</key>\s*<array>(.*?)</array>',
       dotAll: true,
     ).firstMatch(readPlist(path));
     if (match == null) return const <String>[];
@@ -88,14 +94,20 @@ void main() {
   });
 
   group('Info.plist：后台与合规那几条', () {
-    test('后台模式只有 audio 与 remote-notification（**故意没有 voip**）', () {
-      // voip 是给 PushKit 的：声明了却不用，审核会问「你要它干什么」，
-      // 而真正要它的那条路（CallKit 来电界面）还没做 —— 做的时候再加，
-      // 那一天这份用例会红，正好提醒把 docs/release/ios-plan.md 也改掉。
-      expect(
-        plistStrings(info, 'UIBackgroundModes'),
-        <String>['audio', 'remote-notification'],
-      );
+    test('后台模式必须有 voip（CallKit 那条路的硬要求），且不多不少', () {
+      // 2026-10-15：CallKit + PushKit 上来了，这一条从「故意没有 voip」**翻过来**。
+      //
+      // `voip` 管的是「App 已经被划掉之后，别人打电话还能把你叫醒」—— 缺了它
+      // PushKit 就收不到 VoIP 推送，而那种失败在客户端是**静默的**（推送不来而已，
+      // 没有任何报错），所以它必须被钉住。
+      // 依据：苹果的 Configuring background execution modes 里列着 Voice over IP → voip；
+      // 网上「iOS 13 之后不用声明了」是把两件事搞混 —— iOS 13 改的是「收到 VoIP 推送
+      // 必须**立刻**报给 CallKit」，不是取消这个后台模式。
+      expect(plistStrings(info, 'UIBackgroundModes'), <String>[
+        'audio',
+        'remote-notification',
+        'voip',
+      ]);
     });
 
     test('出口合规答 false（不答或答 true 都会让每次上传多一道手续）', () {
@@ -166,7 +178,10 @@ void main() {
         reason: 'Flutter 模板留下的包名：留着它就没法签名（Apple 不认 com.example）',
       );
       // 与 macOS 对齐：同一个 App ID、同一张开发者票
-      expect(read('macos/Runner/Configs/AppInfo.xcconfig'), contains('cc.gracelink.im'));
+      expect(
+        read('macos/Runner/Configs/AppInfo.xcconfig'),
+        contains('cc.gracelink.im'),
+      );
     });
 
     test('最低系统 ≥ 15.0（firebase_core / firebase_messaging 的下限）', () {
@@ -250,13 +265,16 @@ void main() {
       final declared = RegExp(
         r'NSPrivacyCollectedDataType</key>\s*<string>([^<]+)</string>',
       ).allMatches(read(privacy)).map((match) => match.group(1)!).toSet();
-      expect(declared, containsAll(<String>[
-        'NSPrivacyCollectedDataTypeEmailsOrTextMessages',
-        'NSPrivacyCollectedDataTypePhotosorVideos',
-        'NSPrivacyCollectedDataTypeAudioData',
-        'NSPrivacyCollectedDataTypeUserID',
-        'NSPrivacyCollectedDataTypeDeviceID',
-      ]));
+      expect(
+        declared,
+        containsAll(<String>[
+          'NSPrivacyCollectedDataTypeEmailsOrTextMessages',
+          'NSPrivacyCollectedDataTypePhotosorVideos',
+          'NSPrivacyCollectedDataTypeAudioData',
+          'NSPrivacyCollectedDataTypeUserID',
+          'NSPrivacyCollectedDataTypeDeviceID',
+        ]),
+      );
     });
   });
 
@@ -475,6 +493,14 @@ void main() {
         'notificationPermission',
         'requestNotificationPermission',
       ],
+      'gracelinkim/callkit': <String>[
+        'isAvailable',
+        'reportIncomingCall',
+        'reportEnded',
+        'takePendingCall',
+        'voipToken',
+        'lastError',
+      ],
     };
 
     /// 某个 handler 函数的函数体（从 `func handleX(` 到下一个 `func `）
@@ -487,13 +513,14 @@ void main() {
       return next == -1 ? rest : rest.substring(0, next);
     }
 
-    test('四条通道都注册了（方法名逐字对得上）', () {
+    test('五条通道都注册了（方法名逐字对得上）', () {
       final source = read(swift);
       const handlers = <String, String>{
         'gracelinkim/app_info': 'handleAppInfo',
         'gracelinkim/permissions': 'handlePermissions',
         'gracelinkim/app_settings': 'handleAppSettings',
         'gracelinkim/call_service': 'handleCallService',
+        'gracelinkim/callkit': 'handleCallKit',
       };
       for (final entry in required.entries) {
         expect(
@@ -517,7 +544,10 @@ void main() {
     test('iOS 上刻意没有的两条通道：pip 与 call_window（画中画 / 盖锁屏都是 CallKit 的事）', () {
       // 判的是「有没有注册」，不是「有没有提到」—— 文件头那张对照表里正列着它们。
       final source = read(swift);
-      expect(source, isNot(contains('FlutterMethodChannel(name: "gracelinkim/pip"')));
+      expect(
+        source,
+        isNot(contains('FlutterMethodChannel(name: "gracelinkim/pip"')),
+      );
       expect(
         source,
         isNot(contains('FlutterMethodChannel(name: "gracelinkim/call_window"')),
@@ -569,9 +599,10 @@ void main() {
         'gracelinkim/permissions',
         'gracelinkim/app_settings',
         'gracelinkim/call_service',
+        'gracelinkim/callkit',
       };
       const notOnIos = <String, String>{
-        'gracelinkim/pip': '安卓画中画；iOS 那条与通话界面一起做（CallKit）',
+        'gracelinkim/pip': '安卓画中画；iOS 的画中画要 AVPictureInPictureController，还没做',
         'gracelinkim/call_window': '安卓「盖锁屏」；iOS 没有这个开关',
         'gracelinkim/media_session': 'Windows 的系统媒体卡片（SMTC）',
         'gracelinkim/child_window': '桌面的独立小窗（desktop_multi_window）',
@@ -592,14 +623,116 @@ void main() {
       final unaccounted = found
           .difference(implementedOnIos)
           .difference(notOnIos.keys.toSet());
-      expect(
-        unaccounted,
-        isEmpty,
-        reason: '这些通道没说清 iOS 上谁来实现：$unaccounted',
-      );
+      expect(unaccounted, isEmpty, reason: '这些通道没说清 iOS 上谁来实现：$unaccounted');
       // 反向也要成立：写在这里的通道名真的还在用（写错了名字同样该被发现）
       expect(implementedOnIos.difference(found), isEmpty);
       expect(notOnIos.keys.toSet().difference(found), isEmpty);
+    });
+  });
+
+  group('来电那条路：CallKit + PushKit 的硬要求（2026-10-15）', () {
+    /// 从某个标记开始的那段源码（切到下一个成员函数 / MARK 为止）。
+    ///
+    /// 比 `contains(read(swift))` 强的地方：断言必须落在**那个函数里面** ——
+    /// 否则「同一条规矩在别处写过一遍」会骗过它。
+    String sliceFrom(String marker) {
+      final source = read(swift);
+      final start = source.indexOf(marker);
+      expect(start, isNot(-1), reason: '$swift 里找不到「$marker」');
+      final rest = source.substring(start);
+      final ends = <int>[
+        rest.indexOf('\n  func ', 1),
+        rest.indexOf('\n  private func ', 1),
+        rest.indexOf('\n  // MARK', 1),
+      ].where((index) => index > 0).toList()..sort();
+      return ends.isEmpty ? rest : rest.substring(0, ends.first);
+    }
+
+    test('收到 VoIP 推送就在那个回调里报给 CallKit（苹果的硬规则）', () {
+      // iOS 13 起：收到 VoIP 推送必须**立刻**报给 CallKit。先绕去别处再报会被
+      // 当成滥用 VoIP 推送 —— 后果是系统直接掐掉 App（不是「弹不出来」那么轻）。
+      final body = sliceFrom(
+        'didReceiveIncomingPushWith payload: PKPushPayload',
+      );
+      expect(
+        body,
+        contains('reportIncoming('),
+        reason: '推送回调里没上报：苹果会把这条推送算成滥用',
+      );
+      expect(body, contains('callerName:'), reason: '报的时候要带上是谁在打');
+      expect(
+        body,
+        contains('once.run(completion)'),
+        reason:
+            'PushKit 那条 completion 必须被调到'
+            '（没调 = 这条推送没处理完，同样会被掐）',
+      );
+      expect(
+        body,
+        contains('asyncAfter'),
+        reason: '上报的回执万一不来，也要有兜底把 completion 放掉',
+      );
+    });
+
+    test('注册在 didFinishLaunching 里（不能等 Flutter 引擎）', () {
+      final source = read(swift);
+      final launch = source.indexOf('didFinishLaunchingWithOptions');
+      final engine = source.indexOf('func didInitializeImplicitFlutterEngine');
+      expect(launch, isNot(-1), reason: '找不到 didFinishLaunchingWithOptions');
+      expect(engine, greaterThan(launch));
+      expect(
+        source.substring(launch, engine),
+        contains('registerVoipPush()'),
+        reason:
+            'App 被划掉之后 iOS 靠这条注册把进程拉起来送 VoIP 推送；'
+            '注册晚了就会漏掉「冷启动那一通电话」',
+      );
+    });
+
+    test('接听 / 拒接真的转给 Dart（接电话的是状态机，不是原生）', () {
+      final answer = sliceFrom('perform action: CXAnswerCallAction');
+      expect(answer, contains('sendAction(kind: "answer"'));
+      expect(
+        answer,
+        contains('action.fulfill'),
+        reason: '系统那一侧要收干净，否则那个界面会一直转圈',
+      );
+
+      final end = sliceFrom('perform action: CXEndCallAction');
+      expect(end, contains('sendAction(kind: "end"'));
+      expect(end, contains('action.fulfill'));
+    });
+
+    test('同一通不能报两次，结束也不能漏报（漏了锁屏上那个界面会一直挂着）', () {
+      final source = read(swift);
+      expect(
+        source,
+        contains('reportedCalls[existing] == callId'),
+        reason: '同一通重复上报，锁屏上会变成两条一模一样的来电',
+      );
+      expect(source, contains('alreadyReported'));
+      expect(
+        source,
+        contains('reportCall(with: uuid, endedAt: Date(), reason: reason)'),
+        reason: '对端挂了 / 本机取消之后，系统那个来电界面必须被收掉',
+      );
+    });
+
+    test('系统的音频会话交给 CallAudioSession（与保活那条路共用一份）', () {
+      final source = read(swift);
+      expect(source, contains('CXProviderDelegate'));
+      expect(source, contains('PKPushRegistryDelegate'));
+      expect(
+        source,
+        contains('CallAudioSession.shared.start(video: currentVideo)'),
+        reason: '分类只有一处设置（apply()）：两边各写一份，迟早会漏掉一个选项',
+      );
+      expect(source, contains('CallAudioSession.shared.stop()'));
+      expect(
+        source,
+        contains('providerDidReset'),
+        reason: '系统把通话整个重置了（用户强制退出这类），本地也得跟着清',
+      );
     });
   });
 }

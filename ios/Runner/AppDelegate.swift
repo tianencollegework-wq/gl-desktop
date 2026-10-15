@@ -1,6 +1,8 @@
 import AVFAudio
 import AVFoundation
+import CallKit
 import Flutter
+import PushKit
 import UIKit
 import UserNotifications
 
@@ -29,6 +31,10 @@ import UserNotifications
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    // 来电那条路要在**这里**就注册，不能等 Flutter 引擎：
+    // App 被划掉之后，iOS 就是靠这条注册把进程拉起来送 VoIP 推送的，
+    // 注册晚了就会漏掉「冷启动那一通电话」（而那是这条路存在的全部理由）。
+    CallKitBridge.shared.registerVoipPush()
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
@@ -67,6 +73,13 @@ enum GracelinkPlatform {
       .setMethodCallHandler { call, result in
         handleCallService(call, result)
       }
+    // 系统来电界面（CallKit）：通道留着给 `CallKitBridge` —— 用户按下系统界面上
+    // 那颗接听键时，**接电话的是 Dart 那套状态机**，原生得能回头叫它。
+    let callKit = FlutterMethodChannel(name: "gracelinkim/callkit", binaryMessenger: messenger)
+    callKit.setMethodCallHandler { call, result in
+      handleCallKit(call, result)
+    }
+    CallKitBridge.shared.channel = callKit
   }
 
   // MARK: 版本号（lib/core/platform/app_version.dart）
@@ -320,6 +333,450 @@ enum GracelinkPlatform {
       // 回 notImplemented 而不是假装成功 —— 谁真调到了就该在日志里露出来。
       result(FlutterMethodNotImplemented)
     }
+  }
+
+  // MARK: 系统来电界面（lib/core/platform/callkit.dart）
+
+  /// iOS 的**系统级来电界面**（CallKit）与被叫醒那条路（PushKit）。
+  ///
+  /// 与安卓对照着看才清楚各自缺什么：
+  /// * 安卓：来电界面是我们自己画的一整页（`call_window` 那条通道负责盖锁屏），
+  ///   进程靠通话期间的前台服务撑着；
+  /// * iOS：锁屏来电**只有 CallKit 能给**，而被划掉的 App 只有 **PushKit 的 VoIP 推送**
+  ///   能叫醒 —— 界面（好看不好看、能不能接）不是我们画得出来的东西，所以这两件必须做。
+  ///
+  /// 苹果的两条**硬规则**（违反了会被掐掉 App，不是「最好这样」）：
+  /// 1. 收到 VoIP 推送后必须在**那个回调里**立刻报给 CallKit（iOS 13 起）；
+  /// 2. 报之前 `Info.plist` 里要有 `voip` 后台模式（守卫用例钉着）。
+  ///
+  /// 实现都在 `CallKitBridge` 里，这里只做方法分发。
+  private static func handleCallKit(
+    _ call: FlutterMethodCall, _ result: @escaping FlutterResult
+  ) {
+    let bridge = CallKitBridge.shared
+    let arguments = call.arguments as? [String: Any] ?? [:]
+    switch call.method {
+    case "isAvailable":
+      result(bridge.isAvailable)
+
+    case "reportIncomingCall":
+      // 异步回话：真正的结论来自 CallKit 那条回调，而**不能在这里等**它
+      // （回调也在主队列上，等它就是死锁）。
+      bridge.reportIncomingCall(arguments: arguments, result: result)
+
+    case "reportEnded":
+      bridge.reportEnded(
+        callId: arguments["callId"] as? String ?? "",
+        reason: arguments["reason"] as? String ?? "remoteEnded")
+      result(nil)
+
+    case "takePendingCall":
+      result(bridge.takePendingCall())
+
+    case "voipToken":
+      result(bridge.voipToken)
+
+    case "lastError":
+      result(bridge.lastError ?? "")
+
+    default:
+      result(FlutterMethodNotImplemented)
+    }
+  }
+}
+
+// MARK: - 系统来电界面（CallKit）+ 被叫醒（PushKit）
+
+/// [GracelinkPlatform.handleCallKit] 的实现，同时是 `CXProviderDelegate`（系统界面
+/// 那一侧的动作）与 `PKPushRegistryDelegate`（把死掉的 App 叫醒）。
+///
+/// 单例：`CXProvider` 与 `PKPushRegistry` 都是**进程级**的东西，各持一份必然对不上
+/// —— 与 [CallAudioSession] 同一个理由。
+///
+/// 所有回调都在主队列上（provider 的 delegate queue 与 registry 的 queue 都是 main），
+/// 所以下面那几个共享状态不需要锁；**唯一不能做的事是在主线程上等回调**。
+final class CallKitBridge: NSObject, CXProviderDelegate, PKPushRegistryDelegate {
+  static let shared = CallKitBridge()
+
+  /// 回头叫 Dart 的那条通道（`GracelinkPlatform.register` 里塞进来）
+  var channel: FlutterMethodChannel?
+
+  /// 系统这一侧最近一次的失败原话（诊断面板 / 自检都会读到它）
+  private(set) var lastError: String?
+
+  private var provider: CXProvider?
+  private var registry: PKPushRegistry?
+
+  /// 已经报给系统的来电：系统那个 UUID → 我们自己的 callId
+  /// （两边各有一套 id，得有一张对照表才能回答「系统上这一通是哪一通」）
+  private var reportedCalls: [UUID: String] = [:]
+
+  /// 正在响 / 正在通话的那一通。这个 App 一次只允许一通电话，所以只有一个。
+  private var currentCall: UUID?
+
+  /// 当前这通是不是视频（系统界面上的图标、以及音频会话的分类都要它）
+  private var currentVideo = false
+
+  /// 被 PushKit 叫醒时**还没人接**的那条报文。
+  /// App 当时可能刚被拉起来、Dart 还没活，所以先替它存着（`takePendingCall` 取走）。
+  private var pendingPayload = ""
+
+  /// PushKit 发下来的 VoIP token（服务端发 VoIP 推送要用它）
+  private var pushToken = ""
+
+  /// 系统这一侧建得起来吗。
+  ///
+  /// ⚠️ **它不代表报得成**：模拟器上 provider 建得出来，可是 `reportNewIncomingCall`
+  /// 会回一条错误（CallKit 不在模拟器上跑）。真正的判据是上报的回执，所以那条路
+  /// 把系统原话带回去（见 [reportIncoming]）。
+  var isAvailable: Bool { buildProvider() != nil }
+
+  var voipToken: String { pushToken }
+
+  // MARK: PushKit（把死掉的 App 叫醒）
+
+  /// 注册 VoIP 推送。**幂等**，而且必须尽早调（`AppDelegate.didFinishLaunching`）。
+  func registerVoipPush() {
+    guard registry == nil else { return }
+    let created = PKPushRegistry(queue: .main)
+    created.delegate = self
+    created.desiredPushTypes = [.voIP]
+    registry = created
+    NSLog("[推送] 已请求 VoIP 推送（PushKit）")
+  }
+
+  func pushRegistry(
+    _ registry: PKPushRegistry, didUpdate credentials: PKPushCredentials, for type: PKPushType
+  ) {
+    let token = credentials.token.map { String(format: "%02x", $0) }.joined()
+    pushToken = token
+    NSLog("[推送] VoIP token 到位（\(token.count) 位十六进制）")
+    // 服务端要拿它发 VoIP 推送 —— **这条上报还没做**（见 docs/release/ios-plan.md）：
+    // 现在只是把它存下来并交给 Dart，等客户端那条 cid 上报多一种 token 类型。
+    sendAction(kind: "token", token: token)
+  }
+
+  func pushRegistry(_ registry: PKPushRegistry, didInvalidatePushTokenFor type: PKPushType) {
+    pushToken = ""
+    NSLog("[推送] VoIP token 失效了")
+  }
+
+  /// **苹果的硬规则**：收到 VoIP 推送就在这里**立刻**报给 CallKit（iOS 13+）。
+  /// 不报、或者先去别处转一圈再报，都会被当成滥用 VoIP 推送，系统会掐掉 App。
+  func pushRegistry(
+    _ registry: PKPushRegistry,
+    didReceiveIncomingPushWith payload: PKPushPayload,
+    for type: PKPushType,
+    completion: @escaping () -> Void
+  ) {
+    let parsed = parseCallPayload(payload.dictionaryPayload)
+    NSLog(
+      "[推送] 收到 VoIP 来电：\(parsed.callerName.isEmpty ? "（无名）" : parsed.callerName)"
+        + "（video=\(parsed.video)）")
+
+    // `completion` 必须**恰好**调一次（没调 = 这条推送没被处理完）。
+    // 所以两条路都收在那只「只放行一次」的盒子里：上报的回执，与一个兜底定时器
+    //（上报的回执万一不来，也不能让这条推送悬在那里）。
+    let once = Once()
+    reportIncoming(
+      callId: parsed.callId,
+      callerName: parsed.callerName,
+      handleValue: parsed.handleValue,
+      video: parsed.video,
+      payload: parsed.rawPayload
+    ) { _, _, _, _ in
+      once.run(completion)
+    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+      once.run(completion)
+    }
+
+    // 已经活着的 Dart 要马上知道（它可能就是被这条推送叫醒、正在启动的那个）。
+    // Dart 收下了才把暂存的那条报文清掉：**留着的话，下次冷启动会把这通早就结束的
+    // 电话又接一遍**。
+    let payloadText = parsed.rawPayload
+    sendAction(kind: "incoming", callId: parsed.callId, payload: payloadText) { delivered in
+      if delivered, self.pendingPayload == payloadText { self.pendingPayload = "" }
+    }
+  }
+
+  // MARK: 上报给系统
+
+  /// Dart 那半边：把一通来电报给系统（锁屏上弹出那个界面）。
+  ///
+  /// 回话是**异步**的（见 [handleCallKit]）：真正的结论来自 CallKit 的回执。
+  func reportIncomingCall(arguments: [String: Any], result: @escaping FlutterResult) {
+    let peerId = arguments["peerId"] as? String ?? ""
+    let peerName = arguments["peerName"] as? String ?? ""
+    let handleValue = peerId.isEmpty ? (peerName.isEmpty ? "unknown" : peerName) : peerId
+    reportIncoming(
+      callId: arguments["callId"] as? String ?? "",
+      callerName: peerName,
+      handleValue: handleValue,
+      video: arguments["video"] as? Bool ?? false,
+      payload: arguments["payload"] as? String ?? ""
+    ) { accepted, reason, uuid, already in
+      result([
+        "ok": accepted,
+        "reason": reason,
+        "callId": uuid?.uuidString ?? "",
+        "alreadyReported": already,
+      ])
+    }
+  }
+
+  /// 报一通来电。完成回调里给的是**系统那一侧的结论**：
+  /// `accepted` 为真 = 锁屏上真的弹出来了（模拟器上必然是假，原因是系统原话）。
+  private func reportIncoming(
+    callId: String,
+    callerName: String,
+    handleValue: String,
+    video: Bool,
+    payload: String,
+    completion: @escaping (Bool, String, UUID?, Bool) -> Void
+  ) {
+    // 同一通报两次（被推醒那条路已经报过、Dart 起来之后又报一遍）：
+    // **不能再弹一次** —— 那在锁屏上是两条一模一样的来电。
+    if let existing = currentCall, !callId.isEmpty, reportedCalls[existing] == callId {
+      completion(true, "", existing, true)
+      return
+    }
+    guard let provider = buildProvider() else {
+      completion(false, "CallKit 的 provider 建不起来", nil, false)
+      return
+    }
+    // 还有一通在响 / 在通话：先收掉（一次只允许一通电话，与状态机同一套规矩）
+    if let existing = currentCall { endReported(existing, reason: .remoteEnded) }
+
+    let uuid = UUID()
+    let update = CXCallUpdate()
+    update.remoteHandle = CXHandle(type: .generic, value: handleValue)
+    if !callerName.isEmpty { update.localizedCallerName = callerName }
+    update.hasVideo = video
+    // 这个 App 一次只支持一通电话：这些能力全关，免得系统给出「保持/合并」那些
+    // 我们做不到的按钮（按下去就是一条永远没反应的死路）。
+    update.supportsHolding = false
+    update.supportsGrouping = false
+    update.supportsUngrouping = false
+    update.supportsDTMF = false
+
+    if !payload.isEmpty { pendingPayload = payload }
+    currentVideo = video
+    reportedCalls[uuid] = callId
+    currentCall = uuid
+
+    provider.reportNewIncomingCall(with: uuid, update: update) { error in
+      if let error = error {
+        let text = error.localizedDescription
+        self.lastError = text
+        NSLog("[CallKit] 上报来电失败：\(text)")
+        // 没报成：这张对照表就别留着（留着一个系统上不存在的通话，
+        // 后面所有「哪一通」的判断都会错）
+        self.reportedCalls.removeValue(forKey: uuid)
+        if self.currentCall == uuid { self.currentCall = nil }
+        completion(false, text, nil, false)
+        return
+      }
+      NSLog("[CallKit] 来电已报给系统（\(callerName.isEmpty ? "无名" : callerName)）")
+      completion(true, "", uuid, false)
+    }
+  }
+
+  /// 告诉系统「这一通结束了」：锁屏 / 通话中那个界面要收掉。
+  ///
+  /// 这一步**不能省**：不报结束的话，对端挂了或本机取消了，系统那个来电界面会一直
+  /// 挂在那里，用户以为对方还在打。
+  func reportEnded(callId: String, reason: String) {
+    guard let uuid = uuidOf(callId: callId) else {
+      // 没报过的 callId（比如用户在系统界面上按了挂断、我们那边已经收过尾）
+      return
+    }
+    endReported(uuid, reason: endedReason(reason))
+  }
+
+  /// 取走「被 PushKit 叫醒时存下的那条报文」。取一次就清掉。
+  func takePendingCall() -> String {
+    let payload = pendingPayload
+    pendingPayload = ""
+    return payload
+  }
+
+  // MARK: CXProviderDelegate
+
+  /// 用户在**系统来电界面**上按了接听。
+  ///
+  /// 真正「把电话接起来」的动作在 Dart 那套状态机里（发 `acceptRtc`、取麦克风、建连），
+  /// 这里只做两件事：把这条动作转给 Dart，把系统那一侧收干净。
+  func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
+    let callId = reportedCalls[action.callUUID] ?? ""
+    NSLog("[CallKit] 用户在系统界面上按了接听（callId=\(callId)）")
+    sendAction(kind: "answer", callId: callId)
+    // fulfill 之后系统把界面切成「通话中」，并开始自己计时
+    action.fulfill(withDateConnected: Date())
+  }
+
+  /// 用户在系统界面上按了拒接 / 挂断。
+  func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
+    let callId = reportedCalls[action.callUUID] ?? ""
+    NSLog("[CallKit] 用户在系统界面上挂断 / 拒接（callId=\(callId)）")
+    sendAction(kind: "end", callId: callId)
+    // 系统正在收这一通，这里只是把本地那张对照表清干净
+    //（再调一次 reportCall(endedAt:) 是多余的，系统自己正在收）
+    reportedCalls.removeValue(forKey: action.callUUID)
+    if currentCall == action.callUUID { currentCall = nil }
+    action.fulfill()
+  }
+
+  /// 系统把通话整个重置了（用户强制退出这类）：本地也跟着清，并告诉 Dart
+  /// 「这一通没了」—— 不然界面会挂在一通系统上已经不存在的电话上。
+  func providerDidReset(_ provider: CXProvider) {
+    let callId = currentCall.flatMap { reportedCalls[$0] } ?? ""
+    reportedCalls.removeAll()
+    currentCall = nil
+    NSLog("[CallKit] 系统重置了通话状态")
+    if !callId.isEmpty { sendAction(kind: "end", callId: callId) }
+  }
+
+  /// 系统替我们把音频会话激活了（这正是 CallKit 的价值：别的应用会被正确让路）。
+  ///
+  /// 我们只需要把**分类**设成通话那套 —— 复用保活那条路的 `CallAudioSession.apply()`，
+  /// 免得两边各写一份、日后改一处漏一处（那种错只有真机能发现）。
+  func provider(_ provider: CXProvider, didActivate audioSession: AVAudioSession) {
+    do {
+      try CallAudioSession.shared.start(video: currentVideo)
+      NSLog("[CallKit] 系统来电界面已激活音频会话")
+    } catch {
+      CallAudioSession.shared.remember(error)
+      lastError = error.localizedDescription
+      NSLog("[CallKit] 激活音频会话失败：\(error.localizedDescription)")
+    }
+  }
+
+  func provider(_ provider: CXProvider, didDeactivate audioSession: AVAudioSession) {
+    // 系统把会话还回去了（这一通结束了，或者被别的应用抢走）：如实关掉 ——
+    // 不关的话「麦克风正在使用」那个点会一直亮着
+    CallAudioSession.shared.stop()
+    NSLog("[CallKit] 系统来电界面已释放音频会话")
+  }
+
+  // MARK: 内部
+
+  private func buildProvider() -> CXProvider? {
+    if let existing = provider { return existing }
+    let configuration = CXProviderConfiguration()
+    configuration.supportsVideo = true
+    configuration.maximumCallsPerCallGroup = 1
+    configuration.maximumCallGroups = 1
+    configuration.supportedHandleTypes = [.generic, .phoneNumber]
+    let created = CXProvider(configuration: configuration)
+    created.setDelegate(self, queue: .main)
+    provider = created
+    return created
+  }
+
+  private func uuidOf(callId: String) -> UUID? {
+    if callId.isEmpty { return currentCall }
+    for (uuid, value) in reportedCalls where value == callId { return uuid }
+    return nil
+  }
+
+  private func endReported(_ uuid: UUID, reason: CXCallEndedReason) {
+    provider?.reportCall(with: uuid, endedAt: Date(), reason: reason)
+    reportedCalls.removeValue(forKey: uuid)
+    if currentCall == uuid { currentCall = nil }
+  }
+
+  /// Dart 那套结束原因 → 系统认的那几种
+  private func endedReason(_ reason: String) -> CXCallEndedReason {
+    switch reason {
+    case "declined": return .declinedElsewhere
+    case "unanswered": return .unanswered
+    case "failed": return .failed
+    default: return .remoteEnded
+    }
+  }
+
+  /// 回头叫 Dart。`delivered` 说明它这会儿真的收下了（通道那侧有人在听）。
+  private func sendAction(
+    kind: String,
+    callId: String = "",
+    payload: String = "",
+    token: String = "",
+    completion: ((Bool) -> Void)? = nil
+  ) {
+    guard let channel = channel else {
+      completion?(false)
+      return
+    }
+    channel.invokeMethod(
+      "action",
+      arguments: ["kind": kind, "callId": callId, "payload": payload, "token": token]
+    ) { reply in
+      completion?(reply is FlutterError ? false : true)
+    }
+  }
+
+  /// 从 VoIP 推送里还原「谁在打我」。
+  ///
+  /// 字段与服务端 `PushMessage::dataPayload()` 一致（与 Dart 侧
+  /// `incoming_call_push.dart` 认的是**同一份契约**）：
+  /// * `payload`：**整条 `calling` 报文**（JSON 串）→ 冷启动靠它重建会话；
+  /// * `title`：来电人昵称（报文被服务端丢掉时的退路）；
+  /// * `contact_id`：来电人 uid（同上）。
+  ///
+  /// 这一层**只解最少的东西**：上报必须在推送回调里就发出去（苹果的硬规则），
+  /// 而「重建出完整会话」是 Dart 起来之后的事 —— 报文原样存着交给它。
+  /// 解不出来（报文短、字段缺）也**照样报一通**：宁可弹一个「来电」让用户自己看，
+  /// 也不能不报（不报就是滥用 VoIP 推送）。
+  private func parseCallPayload(_ data: [AnyHashable: Any]) -> ParsedCall {
+    var parsed = ParsedCall()
+    if let raw = data["payload"] as? String { parsed.rawPayload = raw }
+    if let title = data["title"] as? String { parsed.callerName = title }
+    let contactId = data["contact_id"] as? String ?? ""
+
+    if let raw = data["payload"] as? String,
+      let bytes = raw.data(using: .utf8),
+      let frame = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any]
+    {
+      if let id = frame["id"] { parsed.callId = "\(id)" }
+      if let from = frame["fromUser"] as? [String: Any] {
+        if let userId = from["id"] as? String { parsed.peerId = userId }
+        if let name = (from["displayName"] as? String) ?? (from["realname"] as? String) {
+          parsed.callerName = name
+        }
+      }
+      if let payload = frame["extends"] as? [String: Any], let type = payload["type"] as? Int {
+        parsed.video = type == 1
+      }
+    }
+    if parsed.peerId.isEmpty { parsed.peerId = contactId }
+    if parsed.callId.isEmpty { parsed.callId = UUID().uuidString }
+    parsed.handleValue = !parsed.peerId.isEmpty
+      ? parsed.peerId
+      : (parsed.callerName.isEmpty ? "unknown" : parsed.callerName)
+    return parsed
+  }
+}
+
+/// 一条 VoIP 推送里我们能用到的那点信息（见 `CallKitBridge.parseCallPayload`）
+private struct ParsedCall {
+  var callId = ""
+  var peerId = ""
+  var callerName = ""
+  var handleValue = "unknown"
+  var video = false
+  var rawPayload = ""
+}
+
+/// 只放行一次的收尾。PushKit 那条 `completion` 必须**恰好**调一次，
+/// 而上报的回执与兜底定时器都会去碰它（两条路都在主队列上，所以不需要锁）。
+private final class Once {
+  private var done = false
+
+  func run(_ body: () -> Void) {
+    guard !done else { return }
+    done = true
+    body()
   }
 }
 

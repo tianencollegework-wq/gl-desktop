@@ -16,6 +16,18 @@ class CredentialStore {
   static const String keyAuthToken = 'authToken';
   static const String keyClientId = 'client_id';
   static const String keyCid = 'cid';
+
+  /// iOS 的 VoIP 推送标识（PushKit 给的），与 [keyCid] **分开存**（S8.2）：
+  /// 它们在服务端是两行设备，来电只走这一条。
+  static const String keyCidVoip = 'cidVoip';
+
+  /// **服务端已经收下过**的那条 VoIP 标识。
+  ///
+  /// 它与 [keyCidVoip]（本地存下的那条）是两件事：PushKit 的标识常常在**登录之前**
+  /// 就到，那一次上报会被跳过（还没有 user / client_id），可本地已经落了盘。
+  /// 拿本地值当「已经报过」的判据，那条标识就再也不会重报 —— 服务端设备表里
+  /// 没有 `apns_voip:` 那一行，iPhone 的锁屏来电永远不弹（日志里却一片正常）。
+  static const String keyCidVoipReported = 'cidVoipReported';
   static const String keyUserInfo = 'userInfo';
   static const String keyGlobalConfig = 'globalConfig';
   static const String keyAppSetting = 'appSetting';
@@ -95,6 +107,21 @@ class CredentialStore {
   String? get cid => getString(keyCid);
 
   Future<void> saveCid(String? value) => setString(keyCid, value);
+
+  /// iOS 的 **VoIP 推送标识**（PushKit 给的那串 16 进制），存成 `apns_voip:xxx`。
+  ///
+  /// 为什么不与 [cid] 并成一条：它们在服务端是**两行设备**（provider 分别是 `fcm_ios`
+  /// 与 `apns_voip`），而「锁屏来电」这件事只有后者做得到 —— 普通通知那条路
+  /// 在 iPhone 上画不出系统来电界面。
+  String? get cidVoip => getString(keyCidVoip);
+
+  Future<void> saveCidVoip(String? value) => setString(keyCidVoip, value);
+
+  /// 服务端已经收下的那条 VoIP 标识（没成功上报过就是 null）
+  String? get cidVoipReported => getString(keyCidVoipReported);
+
+  Future<void> saveCidVoipReported(String? value) =>
+      setString(keyCidVoipReported, value);
 
   Map<String, dynamic>? get userInfo => getJson(keyUserInfo);
 

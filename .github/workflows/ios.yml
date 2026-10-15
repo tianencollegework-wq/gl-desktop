@@ -290,6 +290,23 @@ jobs:
           fi
           exit "$status"
 
+      - name: 通话自检③：系统来电界面（CallKit）
+        if: ${{ !cancelled() }}
+        timeout-minutes: 20
+        # 它不判「来电真的弹出来了」—— 模拟器上 CallKit 不工作，那是环境事实。
+        # 判的是「通道在」「上报不会既没成功也没原因」（详见用例文件头）。
+        # 被划掉之后被叫醒（PushKit）那一条在这层验不了，用例会明确说出来。
+        run: |
+          set +e
+          xcrun simctl terminate "$SIM" cc.gracelink.im >/dev/null 2>&1 || true
+          flutter test integration_test/ios_callkit_smoke_test.dart -d "$SIM" 2>&1 \
+            | tee ios-callkit.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            bash tool/ci/annotate.sh "iOS 系统来电界面自检挂了" ios-callkit.log 120
+          fi
+          exit "$status"
+
       - name: 真启动一次（跑到登录页就算过）
         # 放通话自检后面：它是整条链里最慢的一步（装包 + 起 App），
         # 而「通话行不行」比「起得来」更值得先拿到结论。
@@ -332,6 +349,7 @@ jobs:
             ios-smoke.log
             ios-call-keepalive.log
             ios-call-media.log
+            ios-callkit.log
             ios-simulator.png
           if-no-files-found: warn
 
