@@ -66,8 +66,13 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          # 与 pubspec.yaml 的 SDK 约束（^3.12.2）对齐；本机开发用的就是 3.44.2
-          flutter-version: '3.44.2'
+          # 2026-10-15 从 3.44.2 升到 3.47.7（本机开发用的也是这一版）：
+          # 「iOS 要与安卓一样」这句话在工具链上就是同一个 Flutter —— 本仓只有
+          # 一份 SDK，两个平台都从它出包，钉死同号才不会出现「安卓编得过、iOS 编不过」。
+          # 升级当晚本地跑过：静态检查零问题、全量用例 2351 条全过。
+          # pubspec 的 SDK 约束（^3.12.2）不用动：3.47.7 带的 Dart 3.13.5 满足它，
+          # 放宽/收紧都只会影响依赖解析，与这条流水线要验的事无关。
+          flutter-version: '3.47.7'
           channel: stable
           cache: true
 
@@ -182,7 +187,7 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.44.2'
+          flutter-version: '3.47.7'
           channel: stable
           cache: true
 
@@ -204,20 +209,21 @@ jobs:
           xcrun simctl boot "$UDID" || true
           xcrun simctl list devices | grep "$UDID"
 
-      # ── 下面两步的顺序与上限是量出来的，别随意调 ─────────────────────────────
-      # 第十跑（0341367）两个都红，而两条注解说的都不是我们的代码：
-      #   * `The action '真启动一次（跑到登录页就算过）' has timed out after 18 minutes`
-      #     —— 这台 runner 上「装包 + 起 App」本身就慢到 18 分钟还不够；
-      #   * 接着通话自检连 DDS 都起不来（`Failed to start Dart Development Service`）
-      #     —— 被砍掉的那一步把模拟器留在了坏状态里。
-      # 所以：① 通话自检**提到最前**（它是这条链真正想问的事，不该被别人的超时连累）；
-      #       ② 每条用例**跑之前先 kill_all**，清掉上一条的残留；
-      #       ③ 两条都 `!cancelled()`：一条红不给另一条下结论。
-      - name: 通话链自检（原生保活 + 真建连取麦克风）
-        # `!cancelled()`：两条自检互相独立 —— 「起得来」红了不代表通话链不能
-        # 单独下结论（失败原因完全不同）。被取消时依然不跑。
-        if: ${{ !cancelled() }}
-        timeout-minutes: 28
+      # ── 通话链自检：两条用例 = 两个步骤（2026-10-15 从「一个步骤跑两条」拆开）──
+      #
+      # 为什么要拆，两层原因，都是第十一跑（111d220）教出来的：
+      #   1. **一条卡住会吃掉另一条的预算**。那一跑这一步 28 分钟被杀，而同一个 job
+      #      里「装包 + 起 App + 到登录页」只花 2 分 58 秒 —— 所以卡住的是用例内部
+      #      （`getUserMedia` 在等一个没人点的系统权限框），**不是 runner 慢**。
+      #      拆开之后各给各的上限，一条再卡也不连累另一条。
+      #   2. **被 `timeout-minutes` 砍掉时注解来不及发**（它砍的是整个步骤，
+      #      `annotate.sh` 根本没机会跑）—— 卡死等于现场全丢，比红还糟。
+      #      所以现在每条用例自己也有硬时限：卡住会**当场红**并说清卡在哪一步
+      #      （见 `ios_call_media_smoke_test.dart` 的 `withDeadline`），
+      #      步骤级 `timeout-minutes` 只当兜底。
+      #
+      # 两条都 `!cancelled()`：一条红不给另一条下结论（失败原因完全不同）。
+      - name: 通话自检①：原生保活（我们自己的 Swift）
         # 为什么要有它：启动自检只证明「起得来」，**一步都没走通话** —— 而 iOS 上
         # 真正没底的是抖动最大的那两块：我们自己的 `gracelinkim/call_service`
         # （Swift 的 AVAudioSession）与 flutter_webrtc 在 iOS 上的「建连 + 取麦克风」。
@@ -225,44 +231,47 @@ jobs:
         # 崩了就这里红，而不是等用户点接听才发现「闪退」
         #（`call_media_smoke_test.dart` 的文件头记着安卓上真出现过的那个原生 NPE）。
         #
-        # 每条各自报退出码，任何一条红这一步就红（`fails` 累加，最后 exit）。
+        # 顺带一个副作用：**它会把 App 装进这台模拟器**，而下一步正需要这件事
+        #（`simctl privacy` 只对已安装的 App 生效）。
+        if: ${{ !cancelled() }}
+        timeout-minutes: 20
         run: |
           set +e
-          # 无头模拟器上没人点系统权限框，先按包名把麦克风授出去；
-          # 授不了（老 Xcode 没这个子命令）不算错 —— 用例自己会如实打出设备情况。
-          xcrun simctl privacy "$SIM" grant microphone cc.gracelink.im || true
-          run_one() {
-            label="$1"; shift
-            echo ""
-            echo "=== $label ==="
-            # 上一条用例的 App / 调试连接可能还挂在模拟器里，清干净再上
-            xcrun simctl terminate "$SIM" cc.gracelink.im >/dev/null 2>&1 || true
-            xcrun simctl shutdown "$SIM" >/dev/null 2>&1 || true
-            xcrun simctl boot "$SIM" >/dev/null 2>&1 || true
-            flutter test "$@" 2>&1
-            code=$?
-            echo "[$label] 退出码=$code"
-            [ "$code" -ne 0 ] && fails=$((fails + 1))
-            return 0
-          }
-          (
-            set +e
-            fails=0
-            run_one "原生保活通道（我们自己的 Swift）" \
-              integration_test/ios_call_keep_alive_smoke_test.dart -d "$SIM"
-            # 安卓那份**不能**直接搬过来：它的判据含「取到麦克风」，而 CI 的
-            # runner 是虚拟机、多半没有音频输入设备 —— 那会把环境事实钉成永久红。
-            # 第九跑就是这么卡死的：`getUserMedia` 在等一个没人点的权限框，
-            # 整步 28 分钟超时（注解原文 `has timed out after 28 minutes`）。
-            run_one "真实建连 + 取麦克风（有设备才取）" \
-              integration_test/ios_call_media_smoke_test.dart -d "$SIM"
-            echo ""
-            echo "通话链自检：失败 $fails 条"
-            exit "$fails"
-          ) 2>&1 | tee ios-call-smoke.log
+          # 上一条用例的 App / 调试连接可能还挂在模拟器里，清干净再上
+          xcrun simctl terminate "$SIM" cc.gracelink.im >/dev/null 2>&1 || true
+          xcrun simctl shutdown "$SIM" >/dev/null 2>&1 || true
+          xcrun simctl boot "$SIM" >/dev/null 2>&1 || true
+          flutter test integration_test/ios_call_keep_alive_smoke_test.dart -d "$SIM" 2>&1 \
+            | tee ios-call-keepalive.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
-            bash tool/ci/annotate.sh "iOS 通话链自检挂了" ios-call-smoke.log 120
+            bash tool/ci/annotate.sh "iOS 通话保活自检挂了" ios-call-keepalive.log 120
+          fi
+          exit "$status"
+
+      - name: 通话自检②：建连 + 取麦克风（有设备才取）
+        if: ${{ !cancelled() }}
+        timeout-minutes: 20
+        # 安卓那份**不能**直接搬过来：它的判据含「取到麦克风」，而 CI 的 runner 是
+        # 虚拟机、多半没有音频输入设备 —— 那会把环境事实钉成永久红。所以这份的判据
+        # 是「建连必须过；取流只在真有设备时跑」（见用例文件头）。
+        run: |
+          set +e
+          # ⚠️ 这条命令的位置是**修一个 bug 修出来的**，别挪回最前面：
+          # `simctl privacy` 只对**已经装上**的 App 生效。第十一跑它原先在最前面
+          #（那时 App 还没装、等于授了个空），于是 `getUserMedia` 一直在等一个
+          # 没人点的系统权限框 —— 整步 28 分钟被杀（注解原文
+          # `has timed out after 28 minutes`）。现在它排在自检①**之后**：
+          # ①刚把同一个 bundle id 装进这台模拟器，这时才授得进去。
+          # 授不了（老 Xcode 没这个子命令）不算错 —— 用例自己有硬时限，
+          # 会如实打出「卡在哪一步」并以失败收场。
+          xcrun simctl privacy "$SIM" grant microphone cc.gracelink.im || true
+          xcrun simctl terminate "$SIM" cc.gracelink.im >/dev/null 2>&1 || true
+          flutter test integration_test/ios_call_media_smoke_test.dart -d "$SIM" 2>&1 \
+            | tee ios-call-media.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            bash tool/ci/annotate.sh "iOS 通话媒体自检挂了" ios-call-media.log 120
           fi
           exit "$status"
 
@@ -306,7 +315,8 @@ jobs:
           name: ios-smoke-log
           path: |
             ios-smoke.log
-            ios-call-smoke.log
+            ios-call-keepalive.log
+            ios-call-media.log
             ios-simulator.png
           if-no-files-found: warn
 

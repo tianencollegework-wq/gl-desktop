@@ -369,7 +369,12 @@ Future<File?> downloadLingtingSong(
       final size = await part.length();
       if (total == null || size >= total) {
         if (await file.exists()) await file.delete();
-        return part.rename(file.path);
+        // `await` 是必须的（2026-10-15，Flutter 3.47 的
+        // `unawaited_return_in_try_block` 抓出来的）：不 await 的话，
+        // `finally` 会在改名**还没做完**时就跑掉，而且改名失败会直接越过
+        // 下面的 `on Object catch` —— 一次失败的改名不进 `lastError`、
+        // 也不走重试，用户看到的是「下载完了但文件不在」。
+        return await part.rename(file.path);
       }
       debugPrint('[灵听] 只下到 $size/$total 字节，接着下（第 $attempt 轮）');
     } on Object catch (error) {

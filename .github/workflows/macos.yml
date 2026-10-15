@@ -36,8 +36,9 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          # 与 pubspec.yaml 的 SDK 约束（^3.12.2）对齐；本机开发用的就是 3.44.2
-          flutter-version: '3.44.2'
+          # 2026-10-15 从 3.44.2 升到 3.47.7（与 ios.yml、与本机开发同一个版本）。
+          # pubspec 的 SDK 约束（^3.12.2）不用动：3.47.7 带的 Dart 3.13.5 满足它。
+          flutter-version: '3.47.7'
           channel: stable
           cache: true
 
@@ -97,7 +98,7 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.44.2'
+          flutter-version: '3.47.7'
           channel: stable
           cache: true
 
