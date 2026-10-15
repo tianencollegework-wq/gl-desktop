@@ -1,0 +1,172 @@
+# iOS 真拨一通（**GitHub 的云 Mac + iPhone 模拟器** → 真人接听）
+#
+# 为什么单独开一条流水线，而不是塞进 `ios.yml`：
+#
+# * `ios.yml` 是**自动**的（动到 ios/** 就跑），而这条每次运行都会**真的打一通电话** ——
+#   接电话的是人。自动跑等于半夜响人家手机，还会白烧 macOS 配额；
+# * 手动触发（workflow_dispatch）正好是这件事需要的节奏：**接听方拿着手机、点一下 Run**，
+#   等几分钟铃声就来了。
+#
+# 它补的是 `docs/release/ios-plan.md` 第十一节里最大的一格：那一条到 2026-10-15 为止
+# 只能证明「建得起来、取得到麦克风」，**接通**这件事从来没有第二个人在电话那头 ———
+# 这条流水线把那个缺口补上：云 Mac 上的 iPhone 模拟器当主叫，真人的手机当被叫。
+#
+# ⚠️ 它证明的是「iOS 这条路能拨通、媒体在动」，**不**证明苹果独有的那几样：
+# 锁屏来电（要 CallKit）、划掉 App 后的唤醒（要 PushKit + VoIP 推送）、后台 5 分钟不断线
+# （要真机 + 真音频会话）、画中画。那些仍然要账号 + 一台 iPhone，别拿这条的绿灯顶替。
+#
+# 跑法：
+#   1. 仓库 Secrets 里配好下面四个（值不要贴进聊天、更不要写进任何文件 —— 仓库是公开的）；
+#   2. 让被叫那边**开着 App、连着网**；
+#   3. Actions → 「iOS 真拨一通」→ Run workflow。（第一次会先编包，约 6–12 分钟。）
+#
+# ⚠️ **别用仓库变量或明文写进本文件**：这个仓库是公开的，任何写进来的东西都是永久且公开的。
+name: iOS 真拨一通（模拟器 → 真人）
+
+on:
+  workflow_dispatch:
+    inputs:
+      video:
+        description: '视频通话？（no = 语音）'
+        type: choice
+        options: [no, yes]
+        default: no
+      ready_seconds:
+        description: '拨号前留给接听方的准备秒数'
+        default: '45'
+
+  # 除了网页上点 Run，还留了一扇门：**推一个 tag 就发起**。
+  # 为什么要它：接听方（拿手机那位）说「好了」的那一瞬间就该开始拨，
+  # 而推 tag 是命令行能做的事 —— 不用在浏览器里翻 Actions 页面。
+  #（`inputs.*` 那条路仍然是给人点的，两条并存。）
+  push:
+    tags:
+      - 'live-call-v*'
+
+# 真人在等电话：别让两次运行互相踩（同一时间只留一条）
+concurrency:
+  group: ios-live-call
+  cancel-in-progress: false
+
+jobs:
+  live-call:
+    # 与 ios.yml / macos.yml 钉同一个镜像：iOS 对 Xcode 版本敏感，
+    # 换来换去只会让「上次还好好的」变成噪音。公开仓库的标准 runner 免费且不限量。
+    runs-on: macos-15
+    # 冷缓存实测：pub get + 编一次模拟器包约 6–12 分钟；加上用例自带的最多 10 分钟。
+    timeout-minutes: 45
+    env:
+      # 凭据走 Secrets，一律从环境变量进来 —— 本文件里**没有**任何一个真值。
+      # 名字故意带 LIVE_ 前缀：以后要换测试号，只动这四个，不碰代码。
+      LIVE_ACCOUNT: ${{ secrets.LIVE_TEST_ACCOUNT }}
+      LIVE_PASSWORD: ${{ secrets.LIVE_TEST_PASSWORD }}
+      LIVE_PEER_ID: ${{ secrets.LIVE_CALLEE_ID }}
+      LIVE_PEER_NAME: ${{ secrets.LIVE_CALLEE_NAME }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          # 与 ios.yml 钉同号：本仓只有一份 SDK，两个平台都从它出包
+          flutter-version: '3.47.7'
+          channel: stable
+          cache: true
+
+      - name: 凭据齐了没有（缺哪个就说哪个，别让人猜）
+        # 没配就**当场红**并说清要加哪四个 —— 这条流水线是手动点的，
+        # 点了没反应比红了更让人抓瞎。这里只报名字，不回显任何值。
+        run: |
+          missing=""
+          [ -n "$LIVE_ACCOUNT" ]   || missing="$missing LIVE_TEST_ACCOUNT"
+          [ -n "$LIVE_PASSWORD" ]  || missing="$missing LIVE_TEST_PASSWORD"
+          [ -n "$LIVE_PEER_ID" ]   || missing="$missing LIVE_CALLEE_ID"
+          [ -n "$LIVE_PEER_NAME" ] || missing="$missing LIVE_CALLEE_NAME"
+          if [ -n "$missing" ]; then
+            echo "::error::仓库 Secrets 里还缺：$missing —— Settings › Secrets and variables › Actions 里加上再点一次"
+            exit 1
+          fi
+          echo "四个 Secrets 都在（值不回显）"
+
+      - name: 取依赖
+        run: flutter pub get
+
+      - name: 挑一台模拟器并起它
+        # **动态挑**而不是写死机型名：runner 镜像里预装的机型每一代都在换
+        #（iPhone 15 → 16 → …），写死名字的下一步就是「某天突然全红」。
+        run: |
+          UDID=$(xcrun simctl list devices available | grep -m1 "iPhone" \
+            | grep -oE '[0-9A-Fa-f-]{36}')
+          if [ -z "$UDID" ]; then
+            echo "runner 上居然没有可用的 iPhone 模拟器，列出来看看："
+            xcrun simctl list devices available
+            exit 1
+          fi
+          echo "SIM=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl list devices | grep "$UDID"
+
+      - name: 编模拟器包（未签名，只为装进模拟器）
+        # 为什么非要先装一遍：**`simctl privacy` 只对已经装上的 App 生效**。
+        # `ios.yml` 第十一跑就栽在这里 —— 那句 grant 原先排在装包之前，等于授了个空，
+        # 于是 `getUserMedia` 一直在等一个没人点的系统权限框，整步 28 分钟被杀。
+        # 现在把「装」和「授权」拆成两步，顺序就是那次的教训。
+        timeout-minutes: 25
+        run: |
+          set +e
+          flutter build ios --simulator --debug 2>&1 | tee /tmp/build-sim.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            bash tool/ci/annotate.sh "编模拟器包挂了" /tmp/build-sim.log 120
+          fi
+          exit "$status"
+
+      - name: 装进模拟器
+        run: |
+          ls -d build/ios/iphonesimulator/Runner.app
+          xcrun simctl install "$SIM" build/ios/iphonesimulator/Runner.app
+
+      - name: 授权麦克风与摄像头（顺序要紧：必须在上一步之后）
+        # 无头模拟器上没人能点那个权限框，所以在这里替人点掉。
+        # 授不了（老 Xcode 没这个子命令）不算错：用例自己有硬时限，
+        # 会如实打出「卡在哪一步」并以失败收场，而不是白等。
+        run: |
+          xcrun simctl privacy "$SIM" grant microphone cc.gracelink.im || true
+          xcrun simctl privacy "$SIM" grant camera cc.gracelink.im || true
+
+      - name: 真拨一通（现在开始等铃声）
+        timeout-minutes: 15
+        run: |
+          set +e
+          # 上一条用例的 App / 调试连接可能还挂在模拟器里，清干净再上
+          xcrun simctl terminate "$SIM" cc.gracelink.im >/dev/null 2>&1 || true
+          flutter test integration_test/live_call_dial_smoke_test.dart -d "$SIM" \
+            --dart-define=LIVE_ACCOUNT="$LIVE_ACCOUNT" \
+            --dart-define=LIVE_PASSWORD="$LIVE_PASSWORD" \
+            --dart-define=LIVE_PEER_ID="$LIVE_PEER_ID" \
+            --dart-define=LIVE_PEER_NAME="$LIVE_PEER_NAME" \
+            --dart-define=LIVE_VIDEO="${{ inputs.video == 'yes' }}" \
+            --dart-define=LIVE_READY_SECONDS="${{ inputs.ready_seconds }}" \
+            2>&1 | tee live-call.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            # 行数放大：判据失败时最有价值的是那串「阶段：x → y」——
+            # 它说明卡在拨不出去 / 对方没接 / 信令来了本机没动 三者中的哪一个。
+            bash tool/ci/annotate.sh "iOS 真拨一通没接通" live-call.log 120
+          fi
+          exit "$status"
+
+      - name: 截一张当时的模拟器
+        if: always()
+        run: |
+          xcrun simctl io "$SIM" screenshot live-call-simulator.png || true
+          ls -la live-call-simulator.png || true
+
+      - name: 现场日志（这是唯一的一手证据）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-live-call-log
+          path: |
+            live-call.log
+            live-call-simulator.png
+          if-no-files-found: warn
