@@ -16,7 +16,8 @@
 |---|---|
 | 技术上能不能做 | **能**。Flutter 桌面这条路 macOS 是一等公民：三栏框架、独立窗口、托盘、7 种语言这些都是跨平台 Dart，一行不用改 |
 | 最大的技术成本 | **`windows/runner/` 那 2164 行 C++ 原生层要用 Swift/AppKit 重写一遍**（Dart 侧接口不变，`lib/` 里的调用点一个字都不用动） |
-| 要不要交那 99 美元 | **可以不交**（用户 2026-10-11：「来路不明无所谓」）。Flutter 的 macOS 工程默认就是本地签名（`CODE_SIGN_IDENTITY = "-"`，本仓 `macos/Runner.xcodeproj/project.pbxproj` 里已经是这个），Apple Silicon 上能跑。代价是**每个用户第一次打开要自己去「系统设置 → 隐私与安全性」点一下「仍要打开」** —— 而 macOS 15 起，「右键 → 打开」那条捷径已被苹果取消，只剩这一条路 |
+| 要不要交那 99 美元 | **可以不交**（用户 2026-10-11：「来路不明无所谓」）。Flutter 的 macOS 工程默认就是本地签名（`CODE_SIGN_IDENTITY = "-"`，本仓 `macos/Runner.xcodeproj/project.pbxproj` 里已经是这个）；**在 Apple Silicon 上实测能跑**（CI 那条自检），
+架构上 Intel 也通吃（第十一节第 6 条），但真 Intel 机器上还没人跑过。代价是**每个用户第一次打开要自己去「系统设置 → 隐私与安全性」点一下「仍要打开」** —— 而 macOS 15 起，「右键 → 打开」那条捷径已被苹果取消，只剩这一条路 |
 | 没 Mac 能不能做 | **能，不是死结**：打包交给 GitHub 的 Mac 机器（公开仓库免费不限量），CI 还能自己把 App 真跑一遍做自动烟测；人眼验收租一台云 Mac，**$1/小时 起**，从 Windows 远程桌面连过去即可 |
 | 建议顺序 | **不等任何人**：模板整改 + Swift 原生层 + CI 流水线现在就能做（不需要账号也不需要 Mac），先出一个能装的、未对外签名的 .dmg；哪天想省掉用户那两步手动放行，再买账号接公证 |
 
@@ -37,8 +38,8 @@
 | **新消息提示** | 走 macOS 通知中心（本地通知，**不需要苹果账号**） | 主流 IM 都这样；比 Windows 那边「只有缩进托盘时弹一次气泡」更接近主流 |
 | **快捷键** | 不用改 | 咱们自己只定义了「回车发送 / Shift+回车换行」（`chat_input.dart` 里的 `SingleActivator`），本来就是跨平台的；复制粘贴那些由 Flutter 按平台自动换键（Mac 上自动是 ⌘） |
 | **退出方式** | ⌘Q + 应用菜单 + 菜单栏图标那个「退出」 | 模板自带的 `MainMenu.xib` 已经有标准应用菜单，不用自己画 |
-| **芯片** | **只出 Apple Silicon（M 系列）** | 新 Mac 全是 M 芯片；要照顾 Intel 得另编一套、包大一倍，而 Flutter 自己都在淘汰 Intel Mac。代价：**老 Intel 苹果电脑装不了** |
-| **最低系统版本** | 保持模板默认 **macOS 10.15** | 兼容面最大，不用额外改设置 |
+| **芯片** | **出 Flutter 默认那份：x86_64 + arm64 通用包**（原写的是「只出 Apple Silicon」，**2026-10-15 按实测改掉**） | `flutter build macos --release` 本来就出通吃包 —— 命令里**连架构开关都没有**（`flutter_tools/lib/src/commands/build_macos.dart` 里没有 `--target-platform` 这类选项），所以「只出 Apple Silicon」不是「不配置」的结果，得反过来手改 Xcode 的 `ARCHS`。实测包内 **6 个 Mach-O 全是双架构**（第八节第四次）→ **老 Intel Mac 也能装**；代价只是包大一点（46 MB） |
+| **最低系统版本** | **macOS 11.0**（模板默认是 10.15，**已提高** —— 这行第一版写的「保持 10.15」是错的） | 10.15 根本编不过：`gal`（存图那个包）要求 11.0，第一次 CI 就卡在这里（第八节第一次有报错原文）。Debug / Release / Profile 三份一起提到 11.0，`test/core/macos_runner_test.dart` 有用例守着。代价：11.0 以下的 Mac 装不了 |
 | **卸载** | 「关于」页那一栏保留，点了把 App 移到废纸篓 | Mac 的惯例是拖到废纸篓，给个一键入口只是省事 |
 | **自动更新** | 保持「提示有新版本 → 打开下载页」 | 没签名就**不能**自己替换自己（系统会拦）；Windows 那边现在也是这个做法 |
 
@@ -367,7 +368,8 @@ codesign 签 .app 与 .dmg → notarytool 提交公证 → stapler staple
 它现在有**两个并行的 job**：
 
 * `build-macos`（超时 25 分钟）：编译 → 打 .dmg（带「应用程序」快捷方式）→ 传产物，
-  并把**架构 / 签名 / 版本号**打出来；
+  并把**包内每个 Mach-O 的架构** / 签名 / 版本号打出来（2026-10-15 起从「只看主二进制」
+  改成逐个 `lipo`，理由见第四节末那次教训）；
 * `smoke-launch`（超时 12 分钟，2026-10-11 加）：**把 App 真的跑起来** ——
   `flutter test integration_test/boot_smoke_test.dart -d macos`，90 秒内走到登录页
   （干净机器）或主界面（有登录态）就算过；失败时把应用自己的日志当产物传回来。
@@ -376,11 +378,12 @@ codesign 签 .app 与 .dmg → notarytool 提交公证 → stapler staple
 整个流水线还加了 `concurrency`（同一个 ref 只留最新一次）：那个超时是给「卡住」兜底的，
 而真卡住时最烦的是它占着队列位、后面那次干等。
 
-#### 真跑的成绩单（2026-10-11）
+#### 真跑的成绩单（2026-10-11 起，逐次补记）
 
-> 三次：第一次**失败**（部署目标，已修）、第二次**出包全绿**、
-> 第三次（run 38163020864）**两个 job 都绿** —— 其中包括「真启动一次」那条自检。
-> 下面是三次合起来的事实。
+> 四次：第一次**失败**（部署目标，已修）、第二次**出包全绿**、
+> 第三次（run 38163020864）**两个 job 都绿**（含「真启动一次」那条自检）、
+> 第四次（run 38825318226，2026-10-15）**把包内每个 Mach-O 的架构查完了**。
+> 下面是四次合起来的事实。
 
 **第一次（run 38157899471，4 分钟）+ 失败** —— 跑起来了，`macos/` 的配置层面全对，
 但卡在编译那一步，断点不是我们的 Dart 代码，而是**部署目标太低**：
@@ -409,8 +412,9 @@ Flutter 模板给的是 `MACOSX_DEPLOYMENT_TARGET = 10.15`，而 `gal`（存图�
 两条修正：
 
 * 第二节当初定的是「**只出 Apple Silicon**」，实测 Flutter 的 release 直接给了 **x86_64 + arm64 主二进制**；
-  但**内嵌的插件 framework 只验了主二进制那一个**，所以**不能**据此就说「Intel 机器也能用」——
-  要真支持 Intel 得逐个框架看架构（本节错在没查完就下笔）；
+  但**主二进制通吃推不出包通吃** —— 内嵌的 framework 得逐个看，所以这一版**不能**据此就说
+  「Intel 机器也能用」（本节第一版错在没查完就下笔）。**2026-10-15 补完了**：包内 6 个 Mach-O
+  全是双架构（见下面的第四次），第二节那一行已按实测改写；
 * 流水线里那句「arm64 可能排队更久」是 GitHub 的通告，实测从点火到开跑只有十几秒。
 
 一个次要告警（不影响结果）：`actions/checkout@v4` / `upload-artifact@v4` 走的 Node 20 已弃用，
@@ -449,6 +453,35 @@ Flutter 模板给的是 `MACOSX_DEPLOYMENT_TARGET = 10.15`，而 `gal`（存图�
 * **没验到的还很多**：日志停在 WS `connecting`（用例看到登录页就收工了），所以
   「登录 / 收发消息 / 通话 / 屏幕共享 / 权限弹框」这些**一条都还没在 Mac 上验过** ——
   第十节那张清单仍然要一台真 Mac（可以租）。
+
+**第四次（run 38825318226，2026-10-15，8 分 21 秒）+ 两个 job 都绿**（`smoke-launch` 那条
+「真启动一次」也在里面）。这次是为了结清第十一节一直挂着的那一问：**这个包到底能不能在
+Intel Mac 上跑。**主二进制的架构早就是通的，但第二次那个「两条修正」里已经写明白了：
+主二进制通吃推不出包通吃。所以流水线里加了一步（就加在「看一眼产物」那步里）：**把包内每一个 Mach-O 逐个 `lipo -archs`，
+并在日志里直接给结论**。实测：
+
+| 包内的 Mach-O（共 6 个，全在） | 架构 |
+|---|---|
+| `Contents/MacOS/Gracelink` | x86_64 arm64 |
+| `Contents/Frameworks/FlutterMacOS.framework/Versions/A/FlutterMacOS` | x86_64 arm64 |
+| `Contents/Frameworks/App.framework/Versions/A/App` | x86_64 arm64 |
+| `Contents/Frameworks/WebRTC.framework/Versions/A/WebRTC` | x86_64 arm64 |
+| `Contents/Frameworks/objective_c.framework/Versions/A/objective_c` | x86_64 arm64 |
+| `Contents/Frameworks/sqlite3.framework/Versions/A/sqlite3` | x86_64 arm64 |
+
+日志原话：`包内 Mach-O 共 6 个，其中 x86_64+arm64 双架构 6 个` 和
+`结论：全部通吃 → 这个包在 Intel 与 Apple Silicon 上都能跑`。
+
+同一份产物的其余事实：`Gracelink-1.0.0.dmg` **46 MB**、版本号 `1.0.0+261008`、
+`Signature=adhoc` / `TeamIdentifier=not set`（仍是未签名那条路）、工具链升到 **3.47.7**。
+另外，这次成功前面还有一次红（run 38804012452，20:41）：那是两条 Swift 通道在 CI 上
+**根本没编过去**（`@objc` 的见证方法不能 `private`；ObjC 的泛型写法混进了 Swift），
+修完（提交 `0e8a277`）下一次 9 分 12 秒就绿了（run 38806266355）。
+
+⚠️ 这条结论的边界，别读大：**「架构通吃」只等于「Mach-O 在 Intel 机器上能被加载」**。
+没有人把这台 App 装到真 Intel Mac 上跑过一遍 —— TCC 那套授权、WebRTC 的网络行为、屏幕共享
+在 Intel 上会不会另有一副脾气，一条都没验（第十一节第 6 条）。所以能对外说的是
+「**架构上 Intel 与 Apple Silicon 都能装**」，不能说的是「**在 Intel 上验过**」。
 
 > 另外：**产物能下载 ≠ 能装能跑**。dmg 收到后本机只验了「是个真 dmg」，
 > 「拖进「应用程序」里双击能不能开」还没人做过（要真 Mac；好在上面那次自检
@@ -552,6 +585,9 @@ GitHub 上实际这么干的例子 <https://github.com/isar/isar/blob/main/.gith
 「检查更新」跳 .dmg → 7 种语言切换 + 语言持久化 → 深色模式 → 窗口拉宽/拉窄（三栏 ↔ 单栏）→
 **窗口缩到最小：客户区不能小于 900×600，窄窗下不该出现密码登录表单**（那条闸门见第五节）。
 
+（可选，但值得跑一遍）**借一台 Intel Mac 把上面这份清单再走一遍** —— 架构上已经证明能装
+（第八节第四次），但「真装上去用过」没人做过，而这是唯一能验证那句「Intel 也能装」后半截的办法。
+
 ---
 
 ## 十一、没验过的东西（照实记）
@@ -570,8 +606,9 @@ GitHub 上实际这么干的例子 <https://github.com/isar/isar/blob/main/.gith
 4. WebRTC 在 macOS 沙箱下的网络行为（本地网络权限 `NSLocalNetworkUsageDescription`、
    对称 NAT 下的打洞），这与 Windows 的表现不会完全一致；
 5. 公证在 CI 里的具体报错（买了账号那天才会遇到：`notarytool` 对 entitlements 很挑，例如多余的 entitlement 会被拒）；
-6. ~~要不要出 universal（arm64 + x86_64）~~ —— **已定：只出 Apple Silicon**（见第二节），
-   要照顾 Intel 老机器的话得另编一套，先不做。⚠️ 后来 CI 实测主二进制**本来就是通吃两份**
-   （见第八节），但内嵌 framework 未逐个验，所以**先别对外说「Intel 也能用」**；
+6. ~~要不要出 universal（arm64 + x86_64）~~ —— **2026-10-15 结清**：不用「出」，Flutter 默认就出通吃那份，
+   包内 6 个 Mach-O 实测全是 `x86_64 arm64`（第八节第四次），第二节那一行已按实测改写。
+   **仍然没验过的**是「在一台真 Intel Mac 上装起来用一遍」（权限弹框 / WebRTC / 屏幕共享）——
+   所以对外能说的是「**架构上都能装**」，不能说的是「**在 Intel 上验过**」；
 7. ~~关窗行为要用户拍板~~ —— **已按微信惯例定在第二节**（关窗留后台、⌘Q 真退出），
    至于好不好用，还得真 Mac 上试过才知道。
