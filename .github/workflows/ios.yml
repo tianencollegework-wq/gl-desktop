@@ -159,6 +159,21 @@ jobs:
           echo "--- 架构 ---"
           lipo -archs "$APP/Runner"
 
+      - name: 来电铃声真的进包了（没它，锁屏上只有一声「叮」）
+        if: ${{ !cancelled() }}
+        # 为什么由**苹果自己的工具**判而不是 Dart 用例判：
+        # `test/core/ios_runner_test.dart` 只能读 `project.pbxproj` 的**文本**
+        #（"Resources 那一相里有它"），而这里问的是 .app 里到底有没有这个文件、
+        # 它能不能被解出来 —— 后者只有 `afinfo` 说了算。
+        # 一份坏文件（比如把 mp3 改个后缀就提交）在 Dart 那侧与模拟器上都看不出来，
+        # 真机上表现为「又只剩一声叮」。
+        run: |
+          APP=build/ios/iphoneos/Runner.app
+          test -s "$APP/call_ring.wav"
+          echo "--- 铃声（苹果自己的工具读出来的）---"
+          ls -la "$APP/call_ring.wav"
+          afinfo "$APP/call_ring.wav" | head -8
+
       - name: 核心那两块真的进包了
         if: ${{ !cancelled() }}
         # 少一样就白编：App.framework 是 Dart 那一半，flutter_assets 是资源

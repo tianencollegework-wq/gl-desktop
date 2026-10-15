@@ -260,6 +260,110 @@ void main() {
     });
   });
 
+  // ── iOS 来电铃声（2026-10-15）─────────────────────────────────────────────
+  //
+  // 为什么为它单开一组：安卓来电放的是**用户自己手机的铃声**（系统铃声 uri），
+  // iOS 上不行 —— 系统只认「打进 app 包里的一个 ≤30 秒的音频文件」，没带就退化成
+  // 一声默认提示音。表现是「这个软件来电不响」，而它只有真机看得出来。
+  // 所以这里把两件事钉死：文件本身合法、它真的进了包。
+  group('iOS 来电铃声（没它，锁屏上只有一声「叮」）', () {
+    const wav = 'ios/Runner/call_ring.wav';
+
+    test('文件在，且真的是 iOS 认的那种（线性 PCM / 单声道 / ≤30 秒）', () {
+      final file = File(wav);
+      expect(
+        file.existsSync(),
+        isTrue,
+        reason: '缺 $wav —— 用 `bash tool/audio/make-ios-ringtone.sh` 生成',
+      );
+
+      final bytes = file.readAsBytesSync();
+      // WAV 是最简单的 RIFF 容器：12 字节头 + 一串「块」。这里只认 fmt 与 data。
+      expect(String.fromCharCodes(bytes.sublist(0, 4)), 'RIFF');
+      expect(String.fromCharCodes(bytes.sublist(8, 12)), 'WAVE');
+
+      int u16(int at) => bytes[at] | bytes[at + 1] << 8;
+      int u32(int at) => u16(at) | u16(at + 2) << 16;
+
+      int? format, channels, bits, byteRate, dataSize;
+      var at = 12;
+      while (at + 8 <= bytes.length) {
+        final id = String.fromCharCodes(bytes.sublist(at, at + 4));
+        final size = u32(at + 4);
+        if (id == 'fmt ') {
+          format = u16(at + 8);
+          channels = u16(at + 10);
+          byteRate = u32(at + 16);
+          bits = u16(at + 22);
+        } else if (id == 'data') {
+          dataSize = size;
+        }
+        // 块长度是偶数（奇数要补一个填充字节）
+        at += 8 + size + (size.isOdd ? 1 : 0);
+      }
+
+      expect(
+        format,
+        1,
+        reason: '不是线性 PCM（format=1）—— iOS 只认 PCM / IMA4 / µ-law / a-law',
+      );
+      expect(channels, 1, reason: '单声道就够了，双声道白白大一倍');
+      expect(bits, 16);
+      expect(dataSize, isNotNull, reason: '没找到 data 块，这不是一个正常的 WAV');
+
+      final seconds = dataSize! / byteRate!;
+      expect(
+        seconds,
+        greaterThan(20),
+        reason: '太短就又成一声「叮」了（现在 ${seconds.toStringAsFixed(1)} 秒）',
+      );
+      expect(
+        seconds,
+        lessThanOrEqualTo(30),
+        reason:
+            'iOS **不会循环**，超 30 秒的部分直接被砍'
+            '（现在 ${seconds.toStringAsFixed(1)} 秒）',
+      );
+    });
+
+    test('它进了包 —— 光把文件丢进 ios/Runner/ 是不会被打进 .app 的', () {
+      // 与 PrivacyInfo.xcprivacy 同一个坑、同一套检查（见上面那一组）：
+      // Xcode 只打包「被工程引用、且落在某个 build phase 里」的文件，
+      // 而漏了这一步在模拟器、单测、本地构建里都看不出任何异常。
+      final project = read(pbxproj);
+      const name = 'call_ring.wav';
+
+      final build = project
+          .split('\n')
+          .firstWhere(
+            (line) =>
+                line.contains('$name in Resources') &&
+                line.contains('PBXBuildFile'),
+            orElse: () => '',
+          );
+      expect(build, isNotEmpty, reason: 'pbxproj 里没有 $name 的 PBXBuildFile');
+      final buildId = RegExp('[0-9A-F]{24}').firstMatch(build)!.group(0)!;
+      final refId = RegExp(
+        '[0-9A-F]{24}',
+      ).firstMatch(build.split('fileRef = ').last)!.group(0)!;
+
+      expect(
+        project,
+        contains('$refId /* $name */ = {isa = PBXFileReference;'),
+        reason: 'PBXBuildFile 指向的 $refId 找不到对应的 PBXFileReference',
+      );
+
+      final phase = project.substring(
+        project.indexOf('97C146EC1CF9000F007C117D /* Resources */'),
+      );
+      expect(
+        phase.substring(0, phase.indexOf('End PBXResourcesBuildPhase')),
+        contains('$buildId /* $name in Resources */,'),
+        reason: 'Resources 那一相里没有 $name —— 它不会被打进 .app，来电又只剩一声叮',
+      );
+    });
+  });
+
   group('应用图标与启动图（模板那几张必须被换掉）', () {
     const icons = 'ios/Runner/Assets.xcassets/AppIcon.appiconset';
     const launch = 'ios/Runner/Assets.xcassets/LaunchImage.imageset';

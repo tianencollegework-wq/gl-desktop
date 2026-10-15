@@ -172,6 +172,36 @@ class LocalMessageNotificationPresenter
   /// 在 App 还没起来的那几秒把铃声接上。
   static const String callRingtoneUri = 'content://settings/system/ringtone';
 
+  /// iOS 那份铃声（2026-10-15）。与安卓的 [callRingtoneUri]**不是一回事**，
+  /// 这里的规矩是苹果定的三条，缺一条就退化成一声「叮」：
+  ///
+  /// * 文件必须在 **app 包里**（Xcode 的 Resources 那一相）—— 不能放 Flutter 的
+  ///   `assets/`，系统根本看不见那里；本文件对的是 `ios/Runner/call_ring.wav`，
+  ///   由 `tool/audio/make-ios-ringtone.sh` 生成（应用内那个铃声接 6 遍 ≈ 26.6 秒）；
+  /// * 格式只认 Linear PCM / IMA4 / µ-law / a-law（装在 .wav / .caf / .aiff 里），
+  ///   mp3 用不了；
+  /// * **最长 30 秒且不会循环** —— 所以那 26 秒是故意做满的，不是随便截的一段。
+  ///
+  /// 少了它，朋友在锁屏上只会听到默认提示音就结束，根本来不及接 ——
+  /// 安卓上从来不是这个问题（那边放的是用户自己手机的铃声）。
+  static const String callRingtoneFile = 'call_ring.wav';
+
+  /// iOS 上「来电 / 群邀请」那条通知的参数。**两处共用一个**，抽出来的第二个理由是
+  /// 可测：[showIncomingCall] 里那句 `Platform.isAndroid || Platform.isIOS` 让这段构造
+  /// 在宿主机的单测里根本走不到（Windows / macOS 上直接 return），
+  /// 而它一旦掉了 `sound:`，表现是「真机上又只剩一声叮」—— 那种错必顶在单测里。
+  @visibleForTesting
+  static DarwinNotificationDetails callNotificationIos() =>
+      DarwinNotificationDetails(
+        presentAlert: true,
+        presentSound: true,
+        // 铃声：包里那个 26.6 秒的 WAV（见 [callRingtoneFile]）。
+        // iOS 不会循环，所以文件本身就是「足够长的一遍」。
+        sound: callRingtoneFile,
+        // 时效性通知：能穿透「专注模式」，锁屏上也会更显眼
+        interruptionLevel: InterruptionLevel.timeSensitive,
+      );
+
   /// 来电通知的固定 id：同一时刻只可能有一通来电，固定 id 让「收掉」不用记状态
   static const int callNotificationId = 0x0CA11;
 
@@ -482,11 +512,7 @@ class LocalMessageNotificationPresenter
         body: call.body,
         notificationDetails: NotificationDetails(
           android: android,
-          iOS: DarwinNotificationDetails(
-            presentAlert: true,
-            presentSound: true,
-            interruptionLevel: InterruptionLevel.timeSensitive,
-          ),
+          iOS: callNotificationIos(),
         ),
         // 来电的 payload 是**整条报文**：点它 / 冷启动都要靠它重建会话
         payload: call.payload,
@@ -544,11 +570,9 @@ class LocalMessageNotificationPresenter
         body: invite.body,
         notificationDetails: NotificationDetails(
           android: android,
-          iOS: DarwinNotificationDetails(
-            presentAlert: true,
-            presentSound: true,
-            interruptionLevel: InterruptionLevel.timeSensitive,
-          ),
+          // 与来电同一份参数（同一条渠道、同一个铃声）：群邀请也是「马上就没了」
+          // 的东西，静音掉等于邀不到人
+          iOS: callNotificationIos(),
         ),
         // 与来电一样带上**整条报文**：点它 / 冷启动都要靠它进那个群通话页
         //（群名、群会话 id 都在里面 —— 只给一个群号是进不去的）
