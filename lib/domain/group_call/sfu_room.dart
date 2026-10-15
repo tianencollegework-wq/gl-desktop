@@ -449,6 +449,16 @@ class SfuRoom {
   @visibleForTesting
   int get epoch => _snapshot.epoch;
 
+  /// 定期回查**这一趟**在用哪个间隔：健康时等于 [stateRefreshInterval]，
+  /// 服务端慢时是退避后的值（见 [_notePollPeriod]）。
+  ///
+  /// 为什么单独露出来：这条规则（慢就退避、健康就退回配置值）**数不清**——
+  /// 数「同样 150ms 里压了几条」量到的是机器忙不忙：2026-10-15 在 CI 上，同一份
+  /// 代码那 150ms 里能压 6 条也能压 2 条（两千多条用例同时跑，被饿一下少几次
+  /// 回查），于是"健康那窗比慢那窗多"时真时假。直接看间隔就与调度无关了。
+  @visibleForTesting
+  Duration? get pollInterval => _pollInterval;
+
   /// 界面上的「群通话诊断」快照（长按通话页随时看）
   SfuRoomDiagnostics get diagnostics => SfuRoomDiagnostics(
     roomId: roomId,

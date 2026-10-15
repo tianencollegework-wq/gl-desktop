@@ -65,7 +65,18 @@ primary='❌|\[E\]|Error \(Xcode\)|error •|Some tests failed|Failed to build (
 secondary='Exception|Expected:|Actual:|warning •|\[SMOKE\]|[0-9]+ tests? failed|Failed to'
 
 # 挑中一行，就把它后面 10 行也带上（堆栈/原因就在那几行里）。最多 60 处命中。
-pick() { grep -a -n -E -A 10 -m 60 "$1" "$file" 2>/dev/null | head -n 300; }
+#
+# ── 为什么还要往上带 8 行（2026-10-15 加）────────────────────────────────
+# 失败点**上面**那几行经常才是「为什么失败」。第十跑（run #5）就是现成的例子：
+# 模拟器那条启动自检挂的时候，注解正文里只有一句
+#
+#     ❌ 从零启动：能跑到登录页 (failed after test completion)
+#     Test failed. See exception logs above.
+#
+# —— 「exception logs above」，而上面那几行正是真正的异常，一条都没搬过来。
+# 往下带是为了堆栈，往上带是为了那句「为什么」。只多 8 行：正文总量还是 8000 字
+# 上限，往上加太多会把后面真正要看的失败点挤出额度。
+pick() { grep -a -n -E -B 8 -A 10 -m 60 "$1" "$file" 2>/dev/null | head -n 300; }
 
 site="$(pick "$primary")"
 if [ -n "$site" ]; then

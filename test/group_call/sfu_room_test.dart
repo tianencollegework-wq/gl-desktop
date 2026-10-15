@@ -116,25 +116,52 @@ void main() {
         slowPollThreshold: const Duration(milliseconds: 1),
       );
       addTearDown(polling.dispose);
+      // 等某个条件成立（每 5ms 看一次，上限 2 秒）：**返回它到底成没成**。
+      // 用它而不是「睡固定一段再数条数」——机器被饿的时候条数会少几次，
+      // 那是调度，不是这条规则本身（见下面 ③ 那段注释）。
+      Future<bool> until(bool Function() done) async {
+        final deadline = DateTime.now().add(const Duration(seconds: 2));
+        while (DateTime.now().isBefore(deadline)) {
+          if (done()) return true;
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+        return done();
+      }
+
+      const configured = Duration(milliseconds: 20);
       control.roomStateDelay = const Duration(milliseconds: 10);
       await polling.join();
 
+      // ① 服务端慢：间隔自己拉长（不再照着配置值往里压）
+      expect(
+        await until(() => (polling.pollInterval ?? configured) > configured),
+        isTrue,
+        reason: '服务端慢就该把回查间隔拉长',
+      );
+
+      // ② 拉长之后，同样长的一段时间里压进去的条数必须明显变少：
+      // 配置的 20ms 在 150ms 里能压 7 条，退避后只该剩下两三条。
       final beforeSlow = control.countOf('roomState');
       await Future<void>.delayed(const Duration(milliseconds: 150));
       final slowPolls = control.countOf('roomState') - beforeSlow;
-
-      // 服务端恢复（快得很）
-      control.roomStateDelay = null;
-      final beforeFast = control.countOf('roomState');
-      await Future<void>.delayed(const Duration(milliseconds: 150));
-      final fastPolls = control.countOf('roomState') - beforeFast;
-
       expect(
         slowPolls,
         lessThanOrEqualTo(4),
         reason: '慢的时候 150ms 里不该还压 7 条（间隔该已经拉长了）',
       );
-      expect(fastPolls, greaterThan(slowPolls), reason: '健康了就退回配置的间隔');
+
+      // ③ 服务端恢复（快得很）：间隔要**自己退回配置值**。
+      //
+      // ⚠️ 这里**不能**用「再数 150ms 压了几条、看它比慢的那一窗多不多」来判断：
+      // 2026-10-15 在 CI 上，同一份代码量到过 6 条、也量到过 2 条（那一台机器同时
+      // 在跑两千多条用例，被饿一下这 150ms 里就少几次回查），于是「健康的窗 > 慢的窗」
+      // 时真时假 —— 量到的是机器忙不忙，不是间隔退没退回来。看间隔本身就跟调度无关了。
+      control.roomStateDelay = null;
+      expect(
+        await until(() => polling.pollInterval == configured),
+        isTrue,
+        reason: '健康了就退回配置的间隔',
+      );
     });
 
     test('版本号倒退（服务端重启/清了缓存）不会让这台手机永久收不到更新', () async {
