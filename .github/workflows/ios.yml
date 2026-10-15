@@ -256,8 +256,12 @@ jobs:
             fails=0
             run_one "原生保活通道（我们自己的 Swift）" \
               integration_test/ios_call_keep_alive_smoke_test.dart -d "$SIM"
-            run_one "真实建连 + 取麦克风（点接听那条路）" \
-              integration_test/call_media_smoke_test.dart -d "$SIM" --name 'mode=(minimal|site)'
+            # 安卓那份**不能**直接搬过来：它的判据含「取到麦克风」，而 CI 的
+            # runner 是虚拟机、多半没有音频输入设备 —— 那会把环境事实钉成永久红。
+            # 第九跑就是这么卡死的：`getUserMedia` 在等一个没人点的权限框，
+            # 整步 28 分钟超时（注解原文 `has timed out after 28 minutes`）。
+            run_one "真实建连 + 取麦克风（有设备才取）" \
+              integration_test/ios_call_media_smoke_test.dart -d "$SIM"
             echo ""
             echo "通话链自检：失败 $fails 条"
             exit "$fails"
