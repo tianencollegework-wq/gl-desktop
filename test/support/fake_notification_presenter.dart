@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show ValueChanged;
 import 'package:gracelinkim/core/notify/message_notification_presenter.dart';
 import 'package:gracelinkim/domain/chat/message_notification.dart';
@@ -34,6 +36,13 @@ class FakeNotificationPresenter implements MessageNotificationPresenter {
   String? pendingConversation;
   String? launchCall;
   String? launchGroup;
+
+  /// 让「读冷启动那条来电报文」**卡在半路**（用例拿它自己决定什么时候放行）。
+  ///
+  /// 用来复刻启动那一刻的赛跑：`CallPushHost` 把启动那条链 `unawaited` 甩出去，
+  /// 而它中间有 await、醒来之后还要碰 `ref` —— 那时界面可能已经被拆掉了
+  /// （真机上是「刚起来就被划掉 / 切走」，CI 上就是那条启动自检用例跑完）。
+  Completer<void>? launchCallGate;
 
   /// 模拟「用户点了通知栏里的那条」
   void tapConversation(String conversationId) => onOpen?.call(conversationId);
@@ -85,6 +94,8 @@ class FakeNotificationPresenter implements MessageNotificationPresenter {
 
   @override
   Future<String?> takeLaunchIncomingCall() async {
+    final gate = launchCallGate;
+    if (gate != null) await gate.future;
     final payload = launchCall;
     launchCall = null; // 只能取一次（进程当时已经没了）
     return payload;

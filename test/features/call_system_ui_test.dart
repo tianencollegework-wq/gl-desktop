@@ -8,6 +8,7 @@ import 'package:gracelinkim/app.dart';
 import 'package:gracelinkim/core/audio/call_tones.dart';
 import 'package:gracelinkim/core/i18n/app_i18n.dart';
 import 'package:gracelinkim/core/net/api_client.dart';
+import 'package:gracelinkim/core/notify/message_notification_presenter.dart';
 import 'package:gracelinkim/core/platform/call_pip.dart';
 import 'package:gracelinkim/core/platform/callkit.dart';
 import 'package:gracelinkim/core/platform/push_token.dart';
@@ -30,6 +31,7 @@ import '../support/fake_call_media.dart';
 import '../support/fake_call_pip.dart';
 import '../support/fake_call_ticker.dart';
 import '../support/fake_callkit.dart';
+import '../support/fake_notification_presenter.dart';
 import '../support/fake_web_socket.dart';
 import '../support/test_database.dart';
 
@@ -90,6 +92,8 @@ void main() {
     WidgetTester tester, {
     // 要看「VoIP 标识登记」那条链时注入一个假登记器（默认走真 provider）
     PushRegistrar? registrar,
+    // 要卡住启动那条链时注入自己的通知层替身（默认走真 provider）
+    MessageNotificationPresenter? presenter,
   }) async {
     tester.view.physicalSize = const Size(1170, 2532);
     tester.view.devicePixelRatio = 3;
@@ -108,6 +112,8 @@ void main() {
           callKitProvider.overrideWithValue(callKit),
           if (registrar != null)
             pushRegistrarProvider.overrideWithValue(registrar),
+          if (presenter != null)
+            messageNotificationPresenterProvider.overrideWithValue(presenter),
         ],
         child: const GracelinkApp(),
       ),
@@ -508,6 +514,41 @@ void main() {
 
       expect(reported, <String>['apns_voip:aabbccddeeff']);
       expect(storedVoip, 'apns_voip:aabbccddeeff');
+    });
+  });
+
+  // ── 启动那条链与「界面被拆掉」的赛跑（2026-10-15）───────────────────────
+  //
+  // 第十跑（run #5，8bd88d5）在 iOS 模拟器上只红了两处，其中一处是那条启动自检：
+  // **用例本体是过的**（它自己打印落点，也验过 `takeException` 为空），报的是
+  //
+  //     This test failed after it had already completed.
+  //     Make sure to use a matching library which informs the test runner of
+  //     pending async work.
+  //
+  // —— 启动那条路在用例结束之后才甩出一个异常。而这一层正好有这么一段赛跑：
+  // `initState` 把 `_start()` 用 `unawaited` 甩出去，它中间有 await，醒来之后又去
+  // 碰 `ref`（`_startSystemCalls` 最开头那两处）；而那时界面可能已经被拆掉了
+  //（真机上是「刚起来就被划掉 / 切走」，CI 上就是用例跑完），`ref` 那时候用会直接抛，
+  // 而这个异常**没有任何人接**。
+  //
+  // 盘面就这么大，所以把它钉住：拆掉之后那条链醒来时必须自己发现「我已经没了」。
+  group('启动那一趟还在路上时界面被拆掉', () {
+    testWidgets('不会漏出一个没人接住的异常', (tester) async {
+      final presenter = FakeNotificationPresenter();
+      // 卡住「读冷启动来电报文」那一跳，让 `_start()` 停在 await 里
+      presenter.launchCallGate = Completer<void>();
+
+      await pumpApp(tester, presenter: presenter);
+      // 这一趟还没回来就把界面拆掉（真机上 = 刚起来就被划掉）
+      await disposeApp(tester);
+      // 现在放它回来：醒来那几行必须自己认出「我已经被拆了」
+      presenter.launchCallGate!.complete();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      // 没接住的异常会被本框架直接记成这个用例的失败；这里再显式收一次，
+      // 是为了失败时能看出是「哪一条」而不是只有一句「已完成的用例失败了」。
+      expect(tester.takeException(), isNull);
     });
   });
 }

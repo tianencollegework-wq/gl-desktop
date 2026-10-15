@@ -148,11 +148,21 @@ class _CallPushHostState extends ConsumerState<CallPushHost>
     } on Object catch (error) {
       debugPrint('[来电] 读冷启动的来电报文失败：$error');
     }
+    // ⚠️ 上面那一跳是**平台通道**（几十毫秒起），而整条链是 `unawaited` 甩出来的：
+    // 等回来时这一层可能已经不在了（真机上是「刚起来就被划掉 / 切走」，CI 上就是
+    // 那条启动自检用例跑完）。那时再碰 `ref` 就会直接抛（Riverpod 原话：
+    // Using "ref" when a widget is about to or has been unmounted is unsafe.），
+    // 而这个异常**没人接** —— 表现是「用例早就过了，报告里却又多一条失败」。
+    // 2026-10-15 第十跑 iOS 那条「从零启动：能跑到登录页」报的正是这个：
+    // failed after test completion（用例本体是过的，异常在它结束后才掉出来）。
+    if (!mounted) return;
     await _startSystemCalls();
   }
 
   /// iOS 那一半：系统来电界面（CallKit）。其它平台这里是空操作。
   Future<void> _startSystemCalls() async {
+    // 被拆掉了就一律不碰：见 [_start] 那段注释
+    if (!mounted) return;
     final callKit = ref.read(callKitProvider);
     if (!callKit.supported) return;
     _callKit = callKit;
@@ -296,6 +306,8 @@ class _CallPushHostState extends ConsumerState<CallPushHost>
   /// 空 token（模拟器、没配推送权限、原生还没拿到）直接跳过；上报失败的后果只是
   /// 「锁屏来电不弹」，所以整段只记一行日志，绝不往外抛。
   Future<void> _reportVoipToken(String token) async {
+    // 拆掉了就没人可登记了（`ref` 这时候不能用）：见 [_start] 那段注释
+    if (!mounted) return;
     if (token.trim().isEmpty) return;
     try {
       await ref.read(pushRegistrarProvider).applyVoip(token);
@@ -309,6 +321,8 @@ class _CallPushHostState extends ConsumerState<CallPushHost>
   /// 这里最多等 2 秒只是保险。
   Future<void> _awaitSession() async {
     for (var i = 0; i < 20; i++) {
+      // 这两秒里界面可能就已经被拆了（同 [_start] 那段注释）：不用再等
+      if (!mounted) return;
       if (ref.read(sessionStoreProvider).userId.isNotEmpty) return;
       await Future<void>.delayed(const Duration(milliseconds: 100));
     }
