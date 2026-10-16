@@ -48,12 +48,18 @@
 | 编 iOS 包（未签名） | 任意一台 macOS | ✅ GitHub runner（公开仓库免费不限量） |
 | 在**模拟器**里把 App 跑起来 | 同上 | ✅ 同一个 runner 上 `simctl` + `integration_test/boot_smoke_test.dart` |
 | 截图看界面（哪怕只是登录页） | 同上 | ✅ `xcrun simctl io screenshot`（产物里有，见工作流） |
-| 装到**真机**上 | 开发者账号 + 一台 iPhone + 一台 Mac | ❌ 三样都没有 |
-| TestFlight（自己或别人手机上装） | 开发者账号（$99/年）+ macOS + Xcode | ❌ 只差账号 |
-| 上架 App Store | 同上 + 审核资料 | ❌ 见第九节 |
+| 装到**真机**上 | 开发者账号 + 一台 iPhone（走 TestFlight 装就不需要自己的 Mac） | ❌ 两样都没有 |
+| TestFlight（自己或别人手机上装） | 开发者账号（$99/年）+ 一台 macOS + Xcode —— **那台 Mac 可以是 CI 上那台，不必是自己的** | ❌ 只差账号 |
+| 上架 App Store | 同上 + 审核资料 + **得用 Xcode 26 / iOS 26 SDK 构建**（第九节末尾那条硬要求） | ❌ 见第九节 |
 
 **关键差别**：认证/签名这件事可以完全放在 CI 上（证书塞进 secret，签名与上传都在 runner 上做），
 所以「没有 Mac」从头到尾都不是死路 —— 真正缺的只有**账号**与**一台真机**。
+再说明白一点（2026-10-15 查过苹果文档）：开发者网站（App ID、推送能力、`.p8` 钥匙、
+描述文件、App 记录）在**浏览器里就能办完**，只有两件事非要 macOS —— **编译+签名**，以及
+**上传**（上传自 2025 年起也有跨平台 API，见第九节）；而这两件事都能交给云上那台 Mac，
+我们也就是这么跑 CI 的。全链上唯一在 Windows 上干起来别扭的是**证书请求（CSR）**：
+苹果官方写法是 Mac 上的「钥匙串」，用 OpenSSL 在 Windows 上生成技术上可行、
+但苹果没有明文背书（详见第十一节）。
 
 ---
 
@@ -366,6 +372,18 @@ Swift 一行都没编译过 —— 在没验证的地基上加代码，只会把
 5. **出口合规**：`ITSAppUsesNonExemptEncryption = false` 已经答了，上传时不会再问。
 6. **TestFlight**：内部测试（自己 + 100 人）不需要审核，外部测试要过一次轻量审核；
    所以「12 月买号 → 当天就能让 iPhone 用户装上」，走的是内部测试这条路。
+   上传本身不用自己的 Mac：苹果 2025 年起提供跨平台的
+   [Build Upload API](https://developer.apple.com/documentation/appstoreconnectapi/build-uploads)
+   （任何语言 / 平台都能打），而 `xcrun altool` 那条路才是非 Mac 不可的。
+
+**⚠️ 上传前还有一条硬要求，直接决定「传得上去吗」**：苹果 2026-02-03 公告 ——
+**自 2026-04-28 起，上传到 App Store Connect 的 iOS 包必须用 iOS 26 / iPadOS 26 SDK
+（即 Xcode 26）或更新版本构建**，否则直接拒收。而这条链现在用的是 `macos-15` runner
+上那台 **Xcode 16.4**（CI 日志里 `Build version 16F6`）——**也就是说：今天拿它上传会被拒。**
+买号之前（或当天）得先把这一格办掉：换到带 Xcode 26 的镜像（`macos-26`）或显式切
+`DEVELOPER_DIR`，并且确认 3.47.7 这套工具链跟 Xcode 26 合得来（工作流里那句
+「iOS 构建对 Xcode 版本敏感，换来换去只会让噪音」的理由要跟着重写）。
+来源：<https://developer.apple.com/news/?id=ueeok6yw>。
 
 ---
 
