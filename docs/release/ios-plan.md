@@ -50,7 +50,7 @@
 | 截图看界面（哪怕只是登录页） | 同上 | ✅ `xcrun simctl io screenshot`（产物里有，见工作流） |
 | 装到**真机**上 | 开发者账号 + 一台 iPhone（走 TestFlight 装就不需要自己的 Mac） | ❌ 两样都没有 |
 | TestFlight（自己或别人手机上装） | 开发者账号（$99/年）+ 一台 macOS + Xcode —— **那台 Mac 可以是 CI 上那台，不必是自己的** | ❌ 只差账号 |
-| 上架 App Store | 同上 + 审核资料 + **得用 Xcode 26 / iOS 26 SDK 构建**（第九节末尾那条硬要求） | ❌ 见第九节 |
+| 上架 App Store | 同上 + 审核资料（**SDK 那一格 2026-10-15 已办**：链已换 `macos-26`、CI 用 Xcode 26.6 编，实测见第九节） | ❌ 见第九节 |
 
 **关键差别**：认证/签名这件事可以完全放在 CI 上（证书塞进 secret，签名与上传都在 runner 上做），
 所以「没有 Mac」从头到尾都不是死路 —— 真正缺的只有**账号**与**一台真机**。
@@ -376,14 +376,30 @@ Swift 一行都没编译过 —— 在没验证的地基上加代码，只会把
    [Build Upload API](https://developer.apple.com/documentation/appstoreconnectapi/build-uploads)
    （任何语言 / 平台都能打），而 `xcrun altool` 那条路才是非 Mac 不可的。
 
-**⚠️ 上传前还有一条硬要求，直接决定「传得上去吗」**：苹果 2026-02-03 公告 ——
+**✅ 上传前那条硬要求 —— 2026-10-15/16 当天查、当天办、当天验**：苹果 2026-02-03 公告，
 **自 2026-04-28 起，上传到 App Store Connect 的 iOS 包必须用 iOS 26 / iPadOS 26 SDK
-（即 Xcode 26）或更新版本构建**，否则直接拒收。而这条链现在用的是 `macos-15` runner
-上那台 **Xcode 16.4**（CI 日志里 `Build version 16F6`）——**也就是说：今天拿它上传会被拒。**
-买号之前（或当天）得先把这一格办掉：换到带 Xcode 26 的镜像（`macos-26`）或显式切
-`DEVELOPER_DIR`，并且确认 3.47.7 这套工具链跟 Xcode 26 合得来（工作流里那句
-「iOS 构建对 Xcode 版本敏感，换来换去只会让噪音」的理由要跟着重写）。
-来源：<https://developer.apple.com/news/?id=ueeok6yw>。
+（即 Xcode 26）或更新版本构建**，否则直接拒收（<https://developer.apple.com/news/?id=ueeok6yw>）。
+
+当时的处境很不妙：这条链跑在 `macos-15` 上，而那台镜像给的是 **Xcode 16.4**
+（CI 日志 `Build version 16F6`）—— **编得再绿，那个包也传不上去**；而这一格只会在
+「买完账号、正要传」的那一刻才炸 —— 假绿灯最坏的一种。所以当天就换掉了：
+
+| 事项 | 结果（run 38829247575，2026-10-16，两个 job 全绿） |
+|---|---|
+| 镜像 | `macos-15` → **`macos-26`**（两条 job 用同一台，出问题才判得出是谁的锅） |
+| Xcode | **26.6（Build 17F113）**，闸门那行打出「Xcode 主版本 = 26」 |
+| 编译 | `flutter build ios --release --no-codesign` 在 Xcode 26.6 下照样过（Flutter 3.47.7） |
+| 模拟器 | 四条自检全过：原生保活（1 条）→ 建连+取麦克风（2 条）→ CallKit 通道在 → **真启动一次** |
+| 启动日志 | `[SMOKE] 开始启动：ios Version 26.2 (Build 23C54)` / `落在=登录页，耗时=3s` |
+| 耗时 | 整条 27 分 9 秒（build-ios 17 分、simulator-smoke 26 分，两者并行） |
+
+**这道闸门现在写死在流水线里**（`build-ios` 的「环境信息」那一步）：`xcodebuild -version`
+大版本 < 26 就直接失败并留一条注解 —— 免得将来镜像改了默认值，我们又在「编得过」的假
+绿灯里等到上传那天才发现。
+
+顺带确认的两件事（省得白担心）：**我们锁的 Firebase 是 12.19.0，不是要求 Xcode 26.2+ 的
+13.0.0**（那口锅不用背）；苹果那张必填表里**只列了 iOS/iPadOS、tvOS、visionOS、watchOS，
+没有 macOS** —— 所以 `macos.yml`（桌面那条链）不用动，继续钉 `macos-15`。
 
 ---
 
