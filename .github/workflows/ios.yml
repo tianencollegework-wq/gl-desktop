@@ -72,9 +72,18 @@ concurrency:
 jobs:
   # ── 1. 编得出来（不需要账号，也不需要模拟器）──────────────────────────────
   build-ios:
-    # ⚠️ 钉版本，别用 macos-latest：与 macos.yml 保持一致（那边记着 runner 退役的
-    # 时间表）。iOS 构建对 Xcode 版本敏感，换来换去只会让「上次还好好的」变噪音。
-    runs-on: macos-15
+    # ⚠️ 钉版本，别用 macos-latest（那是个会自己走的别名）。
+    #
+    # 2026-10-15 从 macos-15 换到 macos-26，理由只有一条、但它是硬的：
+    # 苹果公告 2026-04-28 起，**上传到 App Store Connect 的 iOS 包必须用 iOS 26 SDK
+    # （即 Xcode 26）以上构建**（developer.apple.com/news/?id=ueeok6yw）。
+    # macos-15 镜像默认 Xcode 16.4（16F6）—— 也就是说这条链出得再绿，那个包也传不上去，
+    # 「编得过」与「传得上去」之间隔着这一格。macos-26 镜像默认 Xcode 26.6。
+    #
+    # 而「iOS 构建对 Xcode 版本敏感，别换来换去」那句在这里恰恰被推翻了：**不换就传不上去**。
+    # 下面「环境信息」那一步把这道闸门写成硬检查（大版本 < 26 即失败），
+    # 免得将来镜像改了默认值，我们又在假绿灯里等到上传那天才发现。
+    runs-on: macos-26
     # 冷缓存实测：pub get + analyze + test + 首次 build ios 约 15–25 分钟。
     # 留了余量，但不夸张 —— 真卡住时那多出来的每一分钟都是白占队列。
     timeout-minutes: 45
@@ -100,6 +109,19 @@ jobs:
           sw_vers
           echo "--- 可用的 iOS 运行时 ---"
           xcrun simctl list runtimes | head -10
+          echo "--- iOS SDK ---"
+          xcodebuild -showsdks | grep -i iphoneos || true
+
+          # 硬闸门：苹果自 2026-04-28 起只接收用 iOS 26 SDK（Xcode 26）以上构建的 iOS 包
+          # （developer.apple.com/news/?id=ueeok6yw）。这条链的产物就是要往那儿传的，
+          # 所以 Xcode 大版本 < 26 时直接红 —— 「编得过」不等于「传得上去」，
+          # 那种假绿灯会把问题推到最贵的那一刻（买完账号、正要传的时候）。
+          XCODE_MAJOR=$(xcodebuild -version | head -1 | awk '{print $2}' | cut -d. -f1)
+          echo "Xcode 主版本 = $XCODE_MAJOR"
+          if [ "$XCODE_MAJOR" -lt 26 ]; then
+            echo "::error::Xcode $XCODE_MAJOR < 26：苹果自 2026-04-28 起只接收 iOS 26 SDK 构建的包，这个产物传不上去（见 docs/release/ios-plan.md 第九节）"
+            exit 1
+          fi
 
       - name: 取依赖
         run: flutter pub get
@@ -203,7 +225,8 @@ jobs:
 
   # ── 2. 起得来（模拟器；同样不需要账号）───────────────────────────────────
   simulator-smoke:
-    runs-on: macos-15
+    # 与上面同一个镜像（macos-26）：两条 job 用两套环境，出问题时连「是谁的锅」都不好判。
+    runs-on: macos-26
     # 用例自己判死（见 boot_smoke_test.dart 里的超时），这里再套一层壳：
     # 万一是「App 起来了但前台化失败」那种挂住，至少有上限、不白占队列。
     #
