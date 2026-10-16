@@ -251,7 +251,7 @@
 | 4 | ~~灵听在 iOS 的后台播放（`audio_session` 会话分类）~~ **2026-10-14 已写**（`AudioSessionConfigurator`；但 iPhone 上还没试过） | 修好前切后台音乐会被系统停（安卓有前台服务撑着） | 无 | 做完了 |
 | 5 | 画中画（AVPictureInPictureController） | 通话切出去还能看着对方 | 真机 | 3–5 天 |
 | 6 | 屏幕共享（ReplayKit 广播扩展） | 群里那个功能补齐 | 账号（App Extension）+ 真机 | 3–5 天 |
-| 7 | 上架资料（隐私政策页、审核说明）—— ~~账号删除入口~~ **应用内早就有**（见第九节第 4 项） | 不写就上不了架 | 账号 | 2–3 天 |
+| 7 | 上架资料 —— ~~账号删除入口~~ **应用内早就有**（见第九节第 4 项）；~~隐私政策页~~ **已上线可引用**（`gracelink.cc/zh/privacy/` 与 `/en/privacy/`，2026-10-15 实测打开是 200）；剩下**审核说明 + 测试账号** | 不写就上不了架 | 账号 | 2–3 天 |
 | 8 | 让 `open_filex` 支持 Swift Package Manager（或换掉它） | CI 日志里已经在警告：等 Flutter 把 SPM 变成默认，这条会**直接变红**（原文 `This will become an error in a future version of Flutter`） | 插件上游，或换一个支持 SPM 的文件选择器 | 看上游 |
 
 **为什么它原先排第一位，以及现在为什么可以往下走了**：那几项都要动 Swift，而当时这份
